@@ -138,11 +138,27 @@ func CloneString(s string) string {
 }
 
 // DeleteObject marks an arena-allocated object for deletion.
+// This function should be used with allocators that support individual object deletion.
+// Note that not all allocator types support individual deletions.
+//
+// Example:
+//
+//	obj := arena.MakeObject[MyStruct](a)
+//	// ... use obj ...
+//	arena.DeleteObject(a, obj)
 func DeleteObject[T any](a *Arena, obj *T) {
 	a.raw.Remove(unsafe.Pointer(obj))
 }
 
 // DeleteSlice marks an arena-allocated slice for deletion.
+// This function should be used with allocators that support individual slice deletion.
+// Note that not all allocator types support individual deletions.
+//
+// Example:
+//
+//	slice := arena.MakeSlice[int](a, 10, 20)
+//	// ... use slice ...
+//	arena.DeleteSlice(a, slice)
 func DeleteSlice[T any](a *Arena, slice []T) {
 	if len(slice) > 0 {
 		a.raw.Remove(unsafe.Pointer(&slice[0]))
@@ -150,6 +166,14 @@ func DeleteSlice[T any](a *Arena, slice []T) {
 }
 
 // DeleteString marks an arena-allocated string for deletion.
+// This function should be used with allocators that support individual string deletion.
+// Note that not all allocator types support individual deletions.
+//
+// Example:
+//
+//	str := a.MakeString("hello world")
+//	// ... use str ...
+//	arena.DeleteString(a, str)
 func DeleteString(a *Arena, s string) {
 	if len(s) > 0 {
 		a.raw.Remove(unsafe.Pointer(unsafe.StringData(s)))
