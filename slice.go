@@ -13,114 +13,112 @@ package arena
 import (
 	"iter"
 	"sort"
-	"unsafe"
 )
 
 // ArenaSlice[T] – the ultimate appendable slice in arena memory
-// • Small slices → inline buffer (SSO-style)
-// • Large slices → growable arena memory
+// • All data allocated from arena memory
 // • Append/Push never touches the Go heap
 // • 30+ methods for comprehensive slice operations
 //
-// Core operations: Append, Push, Pop, Get, Set, Insert, Remove
-// Bulk operations: AppendSlice, Resize, Clear, Reset
+// Core operations: AppendOne, Push, Pop, Get, Set, Insert, Remove
+// Bulk operations: AppendSlice, Append, Resize, Clear, Reset
 // Algorithms: Sort, SortStable, SortBy, Reverse, Contains, IndexOf
 // Conversion: Clone (heap), CloneSlice (arena), ToSlice
 // Iteration: All, All2, Keys, Iter (pull-based), range loops
 //
 // Usage:
 //
-//	a := New(1024, BUMP) // Create arena
-//	defer a.Delete()
+// a := New(1024, BUMP) // Create arena
+// defer a.Delete()
 //
-//	// Create empty slice
-//	slice := MakeArenaSlice[int](a)
+// // Create empty slice
+// slice := MakeArenaSlice[int](a)
 //
-//	// Append elements (zero heap allocations)
-//	slice.Append(1)
-//	slice.Append(2)
-//	slice.Append(3)
+// // Append elements (zero heap allocations)
+// slice.AppendOne(1)
+// slice.AppendOne(2)
+// slice.AppendOne(3)
 //
-//	// Append multiple elements
-//	slice.AppendSlice([]int{4, 5, 6})
+// // Append multiple elements
+// slice.AppendSlice([]int{4, 5, 6})
 //
-//	// Access elements
-//	fmt.Println(slice.Slice()) // [1 2 3 4 5 6]
+// // Access elements
+// fmt.Println(slice.Slice()) // [1 2 3 4 5 6]
 //
-//	// Iterate using modern iterators (Go 1.23+)
-//	for v := range slice.All() {
-//		fmt.Println(v)
-//	}
+// // Iterate using modern iterators (Go 1.23+)
+// for v := range slice.All() {
+// fmt.Println(v)
+// }
 //
-//	// Iterate with indices
-//	for i, v := range slice.All2() {
-//		fmt.Printf("index %d: %v\n", i, v)
-//	}
+// // Iterate with indices
+// for i, v := range slice.All2() {
+// fmt.Printf("index %d: %v\n", i, v)
+// }
 //
-//	// Traditional range loop
-//	for i, v := range slice.Slice() {
-//		fmt.Printf("index %d: %v\n", i, v)
-//	}
+// // Traditional range loop
+// for i, v := range slice.Slice() {
+// fmt.Printf("index %d: %v\n", i, v)
+// }
 //
-//	// Pull-based iteration
-//	iter := slice.Iter()
-//	for v, ok := iter.Next(); ok; v, ok = iter.Next() {
-//		fmt.Println(v)
-//	}
+// // Pull-based iteration
+// iter := slice.Iter()
+// for v, ok := iter.Next(); ok; v, ok = iter.Next() {
+// fmt.Println(v)
+// }
 type ArenaSlice[T any] struct {
-	arena    *Arena
-	ptr      unsafe.Pointer
-	length   int
-	capacity int
-	data     [16]T   // inline buffer – 16 elements of T (adjustable)
-	sso      bool    // false = inline, true = arena-backed
-	_        [7]byte // padding to 64 bytes (cache-line friendly)
+	arena *Arena
+	data  []T
 }
+
+const ssoThreshold = 16 // SSO for slices up to 16 elements
 
 // Len returns current length
 func (s *ArenaSlice[T]) Len() int {
-	return s.length
+	return len(s.data)
 }
 
 // Cap returns current capacity
 func (s *ArenaSlice[T]) Cap() int {
-	if !s.sso {
-		return len(s.data)
-	}
-	return s.capacity
+	return cap(s.data)
 }
 
 // Slice returns the current slice (zero-copy)
 // This provides access to the underlying data as a standard Go slice.
 // The returned slice shares memory with the ArenaSlice and remains valid
 // until the arena is deleted or reset.
+// ⚠️ CAUTION: Storing the returned slice in a long-lived variable may cause heap escape.
 func (s *ArenaSlice[T]) Slice() []T {
-	if !s.sso {
-		return s.data[:s.length]
-	}
-	return unsafe.Slice((*T)(s.ptr), s.capacity)[:s.length]
+	return s.data
 }
 
-// Append one element
-// This operation never allocates on the heap - small slices use the inline buffer,
-// large slices grow within arena memory.
+// AppendOne appends one element
+// This operation never allocates on the heap - all data is stored in arena memory.
+// Small slices (up to ssoThreshold elements) get small initial capacity.
 //
 // Example:
 //
-//	slice := MakeArenaSlice[int](a)
-//	slice.Append(42)
-//	slice.Append(24)
-//	fmt.Println(slice.Len()) // 2
-func (s *ArenaSlice[T]) Append(v T) {
-	s.ensureCapacity(s.length + 1)
-	if !s.sso {
-		s.data[s.length] = v
-	} else {
-		var zero T
-		elemSize := unsafe.Sizeof(zero)
-		*(*T)(unsafe.Add(s.ptr, elemSize*uintptr(s.length))) = v
-	}
-	s.length++
+// slice := MakeArenaSlice[int](a)
+// slice.AppendOne(42)
+// slice.AppendOne(24)
+// fmt.Println(slice.Len()) // 2
+func (s *ArenaSlice[T]) AppendOne(v T) {
+	s.ensure(len(s.data) + 1)
+	s.data = s.data[:len(s.data)+1]
+	s.data[len(s.data)-1] = v
+}
+
+// Append adds multiple elements to the slice
+// Similar to Go's built-in append function but for ArenaSlice.
+// This method takes any number of elements and appends them efficiently.
+//
+// Example:
+//
+// slice := MakeArenaSlice[int](a)
+// slice.Append(1, 2, 3)  // append multiple elements at once
+// slice.Append(4)         // append single element
+// fmt.Println(slice.Slice()) // [1 2 3 4]
+func (s *ArenaSlice[T]) Append(elems ...T) {
+	s.AppendSlice(elems)
 }
 
 // AppendSlice appends multiple elements
@@ -129,67 +127,45 @@ func (s *ArenaSlice[T]) Append(v T) {
 //
 // Example:
 //
-//	slice := MakeArenaSlice[string](a)
-//	slice.AppendSlice([]string{"hello", "world"})
-//	slice.AppendSlice([]string{"foo", "bar"})
-//	fmt.Println(slice.Slice()) // [hello world foo bar]
+// slice := MakeArenaSlice[string](a)
+// slice.AppendSlice([]string{"hello", "world"})
+// slice.AppendSlice([]string{"foo", "bar"})
+// fmt.Println(slice.Slice()) // [hello world foo bar]
 func (s *ArenaSlice[T]) AppendSlice(src []T) {
 	if len(src) == 0 {
 		return
 	}
-	s.ensureCapacity(s.length + len(src))
-	if !s.sso {
-		copy(s.data[s.length:], src)
+	s.ensure(len(s.data) + len(src))
+	oldLen := len(s.data)
+	s.data = s.data[:oldLen+len(src)]
+	copy(s.data[oldLen:], src)
+}
+
+// ensure grows if needed
+func (s *ArenaSlice[T]) ensure(needed int) {
+	if needed <= cap(s.data) {
+		return
+	}
+
+	// Determine new capacity with SSO awareness
+	var capacity int
+	if cap(s.data) == 0 {
+		// Initial allocation - use SSO threshold for small slices
+		if needed <= ssoThreshold {
+			capacity = ssoThreshold
+		} else {
+			capacity = max(needed, 64)
+		}
 	} else {
-		dst := unsafe.Slice((*T)(s.ptr), s.capacity)
-		copy(dst[s.length:], src)
-	}
-	s.length += len(src)
-}
-
-// ensureCapacity grows if needed
-func (s *ArenaSlice[T]) ensureCapacity(needed int) {
-	if needed <= s.Cap() {
-		return
+		// Growth - double capacity or fit needed
+		capacity = max(cap(s.data)*2, needed)
 	}
 
-	// Migrate to arena if still inline
-	if !s.sso {
-		s.migrateToArena(needed)
-		return
-	}
-
-	// Grow arena-backed buffer
-	newCap := max(max(s.capacity*2, needed), 64)
-
-	var zero T
-	elemSize := unsafe.Sizeof(zero)
-	if elemSize == 0 {
-		elemSize = 1
-	}
-
-	newPtr := s.arena.raw.Alloc(uint64(newCap)*uint64(elemSize), 16)
-	if s.ptr != nil {
-		copy(unsafe.Slice((*T)(newPtr), newCap), unsafe.Slice((*T)(s.ptr), s.capacity))
-	}
-	s.ptr = newPtr
-	s.capacity = newCap
-}
-
-// migrateToArena moves inline data to arena
-func (s *ArenaSlice[T]) migrateToArena(needed int) {
-	newCap := max(max(len(s.data)*2, needed), 64)
-
-	var zero T
-	elemSize := unsafe.Sizeof(zero)
-	if elemSize == 0 {
-		elemSize = 1
-	}
-
-	s.ptr = s.arena.raw.Alloc(uint64(newCap)*uint64(elemSize), 16)
-	copy(unsafe.Slice((*T)(s.ptr), newCap), s.data[:])
-	s.capacity = newCap
-	s.sso = true
+	// Use MakeSlice from object.go to allocate from arena
+	temp := MakeSlice[T](s.arena, len(s.data), capacity)
+	copy(temp, s.data)
+	s.arena.Remove(AsUnsafePointerSlice(s.data))
+	s.data = temp
 }
 
 // Reset keeps capacity, clears length
@@ -198,72 +174,62 @@ func (s *ArenaSlice[T]) migrateToArena(needed int) {
 //
 // Example:
 //
-//	slice := MakeArenaSlice[int](a)
-//	slice.AppendSlice([]int{1, 2, 3})
-//	fmt.Println(slice.Len()) // 3
-//	slice.Reset()
-//	fmt.Println(slice.Len()) // 0
-//	fmt.Println(slice.Cap()) // still has capacity
+// slice := MakeArenaSlice[int](a)
+// slice.AppendSlice([]int{1, 2, 3})
+// fmt.Println(slice.Len()) // 3
+// slice.Reset()
+// fmt.Println(slice.Len()) // 0
+// fmt.Println(slice.Cap()) // still has capacity
 func (s *ArenaSlice[T]) Reset() {
-	s.length = 0
-	// Keep ptr/cap for reuse
+	s.data = s.data[:0]
 }
 
 // Clone returns a heap-allocated copy of the slice that escapes the arena.
+// ⚠️ HEAP ESCAPE: This function allocates on the heap.
 // The returned slice is independent of the arena lifecycle and can be safely
 // used after the arena is deleted. Use this when you need to preserve slice
 // data beyond the arena's lifetime.
 //
 // Example:
 //
-//	arenaSlice := MakeArenaSlice[int](a)
-//	arenaSlice.AppendSlice([]int{1, 2, 3})
+// arenaSlice := MakeArenaSlice[int](a)
+// arenaSlice.AppendSlice([]int{1, 2, 3})
 //
-//	heapSlice := arenaSlice.Clone() // heap allocation here
-//	a.Delete() // arena is gone, but heapSlice is still valid
+// heapSlice := arenaSlice.Clone() // heap allocation here
+// a.Delete() // arena is gone, but heapSlice is still valid
 //
-//	fmt.Println(heapSlice) // [1 2 3]
+// fmt.Println(heapSlice) // [1 2 3]
 func (s *ArenaSlice[T]) Clone() []T {
-	if s.length == 0 {
+	if len(s.data) == 0 {
 		return nil
 	}
-	// Create a new heap-allocated slice
-	result := make([]T, s.length)
-	if !s.sso {
-		// SSO path - copy from inline buffer
-		copy(result, s.data[:s.length])
-	} else {
-		// Arena path - copy from arena memory
-		copy(result, unsafe.Slice((*T)(s.ptr), s.length))
-	}
+	result := make([]T, len(s.data))
+	copy(result, s.data)
 	return result
 }
 
 // MakeArenaSlice creates a new ArenaSlice from initial data
-// Automatically chooses between inline buffer (SSO) and arena allocation
-// based on the initial data size.
+// All data is allocated from arena memory. Small slices benefit from SSO threshold.
 //
 // Example:
 //
-//	a := New(1024, BUMP)
+// a := New(1024, BUMP)
 //
-//	// Small slice - uses inline buffer
-//	small := MakeArenaSlice[int](a, 1, 2, 3)
+// // Small slice - efficient SSO allocation
+// small := MakeArenaSlice[int](a, 1, 2, 3)
 //
-//	// Large slice - uses arena memory
-//	large := MakeArenaSlice[int](a)
-//	for i := 0; i < 100; i++ {
-//		large.Append(i)
-//	}
+// // Large slice - arena memory
+// large := MakeArenaSlice[int](a)
+// for i := 0; i < 100; i++ {
+// large.AppendOne(i)
+// }
 func MakeArenaSlice[T any](a *Arena, initial ...T) ArenaSlice[T] {
-	var as ArenaSlice[T]
-	as.arena = a
-	if len(initial) <= len(as.data) {
-		copy(as.data[:], initial)
-		as.length = len(initial)
-		as.sso = false
-	} else {
+	as := ArenaSlice[T]{arena: a}
+	if len(initial) > 0 {
 		as.AppendSlice(initial)
+	} else {
+		// Pre-allocate SSO capacity for empty slices
+		as.data = MakeSlice[T](a, 0, ssoThreshold)
 	}
 	return as
 }
@@ -272,103 +238,110 @@ func MakeArenaSlice[T any](a *Arena, initial ...T) ArenaSlice[T] {
 // Extended Methods — Super User-Friendly!
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Push = Append (alias — very common)
-func (s *ArenaSlice[T]) Push(v T) { s.Append(v) }
+// Push = AppendOne (alias — very common)
+func (s *ArenaSlice[T]) Push(v T) {
+	s.AppendOne(v)
+}
 
 // Pop removes and returns last element
 func (s *ArenaSlice[T]) Pop() (T, bool) {
-	if s.length == 0 {
+	if len(s.data) == 0 {
 		var zero T
 		return zero, false
 	}
-	s.length--
-	return s.At(s.length), true
+	val := s.data[len(s.data)-1]
+	s.data = s.data[:len(s.data)-1]
+	return val, true
 }
 
 // Get returns element at index (safe)
 func (s *ArenaSlice[T]) Get(i int) (T, bool) {
-	if i < 0 || i >= s.length {
+	if i < 0 || i >= len(s.data) {
 		var zero T
 		return zero, false
 	}
-	return s.At(i), true
+	return s.data[i], true
 }
 
 // Set replaces element at index
 func (s *ArenaSlice[T]) Set(i int, v T) bool {
-	if i < 0 || i >= s.length {
+	if i < 0 || i >= len(s.data) {
 		return false
 	}
-	if s.sso {
-		s.data[i] = v
-	} else {
-		unsafe.Slice((*T)(s.ptr), s.capacity)[i] = v
-	}
+	s.data[i] = v
 	return true
 }
 
 // Insert at index (shifts elements)
 func (s *ArenaSlice[T]) Insert(i int, v T) bool {
-	if i < 0 || i > s.length {
+	if i < 0 || i > len(s.data) {
 		return false
 	}
-	s.ensureCapacity(s.length + 1)
-	if s.sso {
-		copy(s.data[i+1:], s.data[i:s.length])
-		s.data[i] = v
-	} else {
-		slice := unsafe.Slice((*T)(s.ptr), s.capacity)
-		copy(slice[i+1:], slice[i:s.length])
-		slice[i] = v
-	}
-	s.length++
+	s.ensure(len(s.data) + 1)
+	s.data = s.data[:len(s.data)+1]
+	copy(s.data[i+1:], s.data[i:len(s.data)-1])
+	s.data[i] = v
 	return true
 }
 
 // Remove at index (shifts elements)
 func (s *ArenaSlice[T]) Remove(i int) bool {
-	if i < 0 || i >= s.length {
+	if i < 0 || i >= len(s.data) {
 		return false
 	}
-	if s.sso {
-		copy(s.data[i:], s.data[i+1:s.length])
-	} else {
-		slice := unsafe.Slice((*T)(s.ptr), s.capacity)
-		copy(slice[i:], slice[i+1:s.length])
-	}
-	s.length--
+	copy(s.data[i:], s.data[i+1:])
+	s.data = s.data[:len(s.data)-1]
 	return true
 }
 
+// RemoveBy removes elements matching a condition with quantity control.
+// The limit parameter controls maximum number of elements to remove (0 = unlimited).
+// Returns the number of elements removed.
+//
+// Example:
+//
+//	slice := MakeArenaSlice[int](a, 1, 2, 3, 4, 5, 5, 5)
+//	removed := slice.RemoveBy(2, func(i int, v int) bool { return v == 5 })
+//	// removed = 2, slice contains [1, 2, 3, 4, 5]
+func (s *ArenaSlice[T]) RemoveBy(limit int, fn func(index int, v T) bool) int {
+	var removed int
+	for i := len(s.data) - 1; i >= 0; i-- {
+		if fn(i, s.data[i]) {
+			s.Remove(i)
+			removed++
+			if removed >= limit && limit > 0 {
+				return removed
+			}
+		}
+	}
+	return removed
+}
+
 // Clear keeps capacity
-func (s *ArenaSlice[T]) Clear() { s.length = 0 }
+func (s *ArenaSlice[T]) Clear() {
+	s.data = s.data[:0]
+}
 
 // Resize to exact length (zero-fill if growing)
 func (s *ArenaSlice[T]) Resize(n int) {
-	if n <= s.length {
-		s.length = n
+	if n <= len(s.data) {
+		s.data = s.data[:n]
 		return
 	}
-	s.ensureCapacity(n)
-	if s.sso {
-		for i := s.length; i < n; i++ {
-			s.data[i] = *new(T)
-		}
-	} else {
-		slice := unsafe.Slice((*T)(s.ptr), s.capacity)
-		for i := s.length; i < n; i++ {
-			slice[i] = *new(T)
-		}
+	s.ensure(n)
+	oldLen := len(s.data)
+	s.data = s.data[:n]
+	for i := oldLen; i < n; i++ {
+		s.data[i] = *new(T)
 	}
-	s.length = n
 }
 
 // Truncate shrinks length
 func (s *ArenaSlice[T]) Truncate(n int) bool {
-	if n < 0 || n > s.length {
+	if n < 0 || n > len(s.data) {
 		return false
 	}
-	s.length = n
+	s.data = s.data[:n]
 	return true
 }
 
@@ -381,12 +354,14 @@ func (s *ArenaSlice[T]) Reverse() {
 }
 
 // Sort (for ordered types)
+// ⚠️ CAUTION: The comparison function may cause closure allocations.
 func (s *ArenaSlice[T]) Sort(less func(a, b T) bool) {
 	slice := s.Slice()
 	sort.Slice(slice, func(i, j int) bool { return less(slice[i], slice[j]) })
 }
 
 // SortStable
+// ⚠️ CAUTION: The comparison function may cause closure allocations.
 func (s *ArenaSlice[T]) SortStable(less func(a, b T) bool) {
 	slice := s.Slice()
 	sort.SliceStable(slice, func(i, j int) bool { return less(slice[i], slice[j]) })
@@ -403,6 +378,7 @@ func (s *ArenaSlice[T]) SortBy(cmpFn func(a, b T) int) {
 }
 
 // Contains
+// ⚠️ CAUTION: Using any() for comparison may cause interface allocations.
 func (s *ArenaSlice[T]) Contains(v T) bool {
 	for _, x := range s.Slice() {
 		if any(x) == any(v) {
@@ -412,10 +388,23 @@ func (s *ArenaSlice[T]) Contains(v T) bool {
 	return false
 }
 
-// IndexOf
+// IndexOf finds the first occurrence of an element
+// ⚠️ CAUTION: Using any() for comparison may cause interface allocations.
 func (s *ArenaSlice[T]) IndexOf(v T) int {
 	for i, x := range s.Slice() {
 		if any(x) == any(v) {
+			return i
+		}
+	}
+	return -1
+}
+
+// LastIndexOf finds the last occurrence of an element
+// Returns -1 if not found.
+// ⚠️ CAUTION: Using any() for comparison may cause interface allocations.
+func (s *ArenaSlice[T]) LastIndexOf(v T) int {
+	for i := len(s.data) - 1; i >= 0; i-- {
+		if any(s.data[i]) == any(v) {
 			return i
 		}
 	}
@@ -430,16 +419,17 @@ func (s *ArenaSlice[T]) CloneSlice() ArenaSlice[T] {
 }
 
 // ToSlice returns as normal []T (copy to heap)
+// ⚠️ HEAP ESCAPE: This function allocates on the heap.
 func (s *ArenaSlice[T]) ToSlice() []T {
-	dst := make([]T, s.length)
-	copy(dst, s.Slice())
+	dst := make([]T, len(s.data))
+	copy(dst, s.data)
 	return dst
 }
 
 // Keys returns an iterator over indices
 func (s *ArenaSlice[T]) Keys() iter.Seq[int] {
 	return func(yield func(int) bool) {
-		for i := 0; i < s.length; i++ {
+		for i := 0; i < len(s.data); i++ {
 			if !yield(i) {
 				return
 			}
@@ -453,17 +443,14 @@ func (s *ArenaSlice[T]) Keys() iter.Seq[int] {
 
 // LenForRange returns length for range loops
 func (s *ArenaSlice[T]) LenForRange() int {
-	return s.length
+	return len(s.data)
 }
 
 // At returns element at index for range loops
 // Used internally by Go's range loop implementation.
 // Zero-allocation access to elements.
 func (s *ArenaSlice[T]) At(i int) T {
-	if !s.sso {
-		return s.data[i]
-	}
-	return unsafe.Slice((*T)(s.ptr), s.capacity)[i]
+	return s.data[i]
 }
 
 // All returns an iterator over values (Go 1.23+ iter.Seq)
@@ -471,33 +458,24 @@ func (s *ArenaSlice[T]) At(i int) T {
 //
 // Example:
 //
-//	slice := MakeArenaSlice[int](a)
-//	slice.AppendSlice([]int{1, 2, 3, 4, 5})
+// slice := MakeArenaSlice[int](a)
+// slice.AppendSlice([]int{1, 2, 3, 4, 5})
 //
-//	// Iterate all values
-//	for v := range slice.All() {
-//		fmt.Println(v)
-//	}
+// // Iterate all values
+// for v := range slice.All() {
+// fmt.Println(v)
+// }
 //
-//	// Early termination
-//	for v := range slice.All() {
-//		if v > 3 {
-//			break // stops iteration
-//		}
-//		fmt.Println(v)
-//	}
+// // Early termination
+// for v := range slice.All() {
+// if v > 3 {
+// break // stops iteration
+// }
+// fmt.Println(v)
+// }
 func (s *ArenaSlice[T]) All() iter.Seq[T] {
 	return func(yield func(T) bool) {
-		if !s.sso {
-			for i := 0; i < s.length; i++ {
-				if !yield(s.data[i]) {
-					return
-				}
-			}
-			return
-		}
-		slice := unsafe.Slice((*T)(s.ptr), s.capacity)[:s.length]
-		for _, v := range slice {
+		for _, v := range s.data {
 			if !yield(v) {
 				return
 			}
@@ -510,24 +488,15 @@ func (s *ArenaSlice[T]) All() iter.Seq[T] {
 //
 // Example:
 //
-//	slice := MakeArenaSlice[string](a)
-//	slice.AppendSlice([]string{"apple", "banana", "cherry"})
+// slice := MakeArenaSlice[string](a)
+// slice.AppendSlice([]string{"apple", "banana", "cherry"})
 //
-//	for i, fruit := range slice.All2() {
-//		fmt.Printf("Index %d: %s\n", i, fruit)
-//	}
+// for i, fruit := range slice.All2() {
+// fmt.Printf("Index %d: %s\n", i, fruit)
+// }
 func (s *ArenaSlice[T]) All2() iter.Seq2[int, T] {
 	return func(yield func(int, T) bool) {
-		if !s.sso {
-			for i := 0; i < s.length; i++ {
-				if !yield(i, s.data[i]) {
-					return
-				}
-			}
-			return
-		}
-		slice := unsafe.Slice((*T)(s.ptr), s.capacity)[:s.length]
-		for i, v := range slice {
+		for i, v := range s.data {
 			if !yield(i, v) {
 				return
 			}
@@ -547,13 +516,13 @@ type ArenaSliceIter[T any] struct {
 //
 // Example:
 //
-//	slice := MakeArenaSlice[int](a)
-//	slice.AppendSlice([]int{10, 20, 30})
+// slice := MakeArenaSlice[int](a)
+// slice.AppendSlice([]int{10, 20, 30})
 //
-//	iter := slice.Iter()
-//	for v, ok := iter.Next(); ok; v, ok = iter.Next() {
-//		fmt.Println(v) // prints 10, 20, 30
-//	}
+// iter := slice.Iter()
+// for v, ok := iter.Next(); ok; v, ok = iter.Next() {
+// fmt.Println(v) // prints 10, 20, 30
+// }
 func (s *ArenaSlice[T]) Iter() ArenaSliceIter[T] {
 	return ArenaSliceIter[T]{s: s, index: 0}
 }

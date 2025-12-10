@@ -34,3 +34,8 @@ func (s *SlabAllocator) Delete() {
 func (s *SlabAllocator) Remove(ptr unsafe.Pointer) {
 	// no op for slab allocator
 }
+
+func (s *SlabAllocator) Owns(ptr unsafe.Pointer) bool {
+	// TODO: implement when slab allocator is fully implemented
+	return false
+}

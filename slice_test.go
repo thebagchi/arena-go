@@ -202,10 +202,7 @@ func TestArenaSliceRangeLoop(t *testing.T) {
 	slice.AppendSlice([]string{"apple", "banana", "cherry"})
 
 	// Test range loop
-	var result []string
-	for _, v := range slice.Slice() {
-		result = append(result, v)
-	}
+	result := slice.Slice()
 
 	expected := []string{"apple", "banana", "cherry"}
 	if !reflect.DeepEqual(result, expected) {
@@ -343,10 +340,11 @@ func BenchmarkArenaSliceIterate(b *testing.B) {
 }
 
 func BenchmarkStandardSlice(b *testing.B) {
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		slice := make([]int, 0, 100)
 		for j := 0; j < 100; j++ {
 			slice = append(slice, j)
 		}
+		_ = slice // Use the slice to avoid SA4010
 	}
 }

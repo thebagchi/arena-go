@@ -28,10 +28,10 @@ import (
 // Public API – one arena for all types
 // ---------------------------------------------------------------
 
-type Allocator int
+type Type int
 
 const (
-	BUMP Allocator = iota
+	BUMP Type = iota
 	SLAB
 	BUDDY
 )
@@ -40,17 +40,17 @@ const (
 // Thread-safe: Multiple goroutines can safely call Alloc concurrently.
 // The underlying allocator handles synchronization internally.
 type Arena struct {
-	raw RawArena // internal low-level allocator
+	Allocator
 }
 
 // New creates an arena. pages == 0 → 1 page (4 KiB default)
-func New(pages int, alloc Allocator) *Arena {
+func New(pages int, alloc Type) *Arena {
 	if pages <= 0 {
 		pages = 1 // ← your request: treat 0 as 1
 	}
 	size := pages * syscall.Getpagesize()
 
-	var raw RawArena
+	var raw Allocator
 	switch alloc {
 	case BUMP:
 		raw = NewBumpAllocator(size)
@@ -61,23 +61,31 @@ func New(pages int, alloc Allocator) *Arena {
 	default:
 		raw = NewBumpAllocator(size)
 	}
-	return &Arena{raw: raw}
+	return &Arena{Allocator: raw}
 }
 
 func (a *Arena) Reset() {
-	a.raw.Reset()
+	a.Allocator.Reset()
 }
 func (a *Arena) Delete() {
-	a.raw.Delete()
+	a.Allocator.Delete()
+}
+
+// Owns checks if the given pointer belongs to memory managed by this arena.
+// Returns true if the pointer was allocated by this arena and is still valid.
+// Returns false for nil pointers or pointers not managed by this arena.
+func (a *Arena) Owns(ptr unsafe.Pointer) bool {
+	return a.Allocator.Owns(ptr)
 }
 
 // ---------------------------------------------------------------
 // Internal raw allocators (all support growing)
 // ---------------------------------------------------------------
 
-type RawArena interface {
+type Allocator interface {
 	Alloc(size, align uint64) unsafe.Pointer
 	Reset()
 	Delete()
 	Remove(ptr unsafe.Pointer)
+	Owns(ptr unsafe.Pointer) bool
 }

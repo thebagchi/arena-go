@@ -41,3 +41,8 @@ func (b *BuddyAllocator) Delete() {
 func (b *BuddyAllocator) Remove(ptr unsafe.Pointer) {
 	// no op for buddy allocator
 }
+
+func (b *BuddyAllocator) Owns(ptr unsafe.Pointer) bool {
+	// TODO: implement when buddy allocator is fully implemented
+	return false
+}

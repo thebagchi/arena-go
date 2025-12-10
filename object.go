@@ -18,8 +18,25 @@ func Alloc[T any](a *Arena) *T {
 	if size == 0 {
 		size = 1
 	}
-	ptr := a.raw.Alloc(uint64(size), 16)
+	ptr := a.Allocator.Alloc(uint64(size), 16)
 	return (*T)(ptr)
+}
+
+// Ptr allocates memory for a value in the arena and returns a pointer to it.
+// The value is copied into arena memory, making it independent of the original.
+//
+// Example:
+//
+//	a := New(1024, BUMP)
+//	defer a.Delete()
+//
+//	value := 42
+//	ptr := Ptr(a, value)  // allocates int in arena, returns *int
+//	*ptr = 100            // modify the arena-backed value
+func Ptr[T any](a *Arena, value T) *T {
+	ptr := Alloc[T](a)
+	*ptr = value
+	return ptr
 }
 
 // MakeObject allocates and returns a pointer to a new instance of type T in the arena.
@@ -40,7 +57,7 @@ func MakeObject[T any](a *Arena) *T {
 	if size == 0 {
 		size = 1
 	}
-	ptr := a.raw.Alloc(uint64(size), uint64(align))
+	ptr := a.Allocator.Alloc(uint64(size), uint64(align))
 	return (*T)(ptr)
 }
 
@@ -89,9 +106,60 @@ func MakeSlice[T any](a *Arena, length, capacity int) []T {
 		panic("arena: slice allocation size overflow")
 	}
 	var (
-		ptr   = a.raw.Alloc(uint64(capacity)*uint64(size), 16)
+		ptr   = a.Allocator.Alloc(uint64(capacity)*uint64(size), 16)
 		slice = unsafe.Slice((*T)(ptr), capacity)
 	)
+	return slice[:length]
+}
+
+// Append appends elements to an arena-backed slice, growing it if necessary.
+// This function ensures that appended elements stay within arena memory and
+// don't cause heap allocations. When growing is required, the old slice backing
+// is automatically marked for deletion in the arena. Use this instead of the
+// built-in append function when working with arena-backed slices.
+//
+// Parameters:
+//   - a: The arena that backs the slice
+//   - slice: The arena-backed slice to append to
+//   - elems: Elements to append
+//
+// Returns:
+//   - A new slice that includes the original elements plus the appended ones
+//
+// Example:
+//
+//	slice := arena.MakeSlice[int](a, 2, 4) // []int with cap 4
+//	slice[0] = 1
+//	slice[1] = 2
+//
+//	// Append more elements
+//	slice = arena.Append(a, slice, 3, 4, 5)
+//	fmt.Println(slice) // [1 2 3 4 5]
+func Append[T any](a *Arena, slice []T, elems ...T) []T {
+	if len(elems) == 0 {
+		return slice
+	}
+	// Calculate new length
+	length := len(slice) + len(elems)
+	// Check if we need to grow
+	if length > cap(slice) {
+		// Need to allocate new backing
+		capacity := max(max(cap(slice)*2, length), 4)
+
+		// Allocate new slice in arena
+		temp := MakeSlice[T](a, length, capacity)
+		// Copy existing elements
+		copy(temp[:len(slice)], slice)
+		// Copy new elements
+		copy(temp[len(slice):], elems)
+		// Mark old slice backing for deletion (if slice is not empty)
+		if len(slice) > 0 {
+			a.Allocator.Remove(unsafe.Pointer(&slice[0]))
+		}
+		return temp
+	}
+	// Enough capacity, just append in place
+	copy(slice[len(slice):length], elems)
 	return slice[:length]
 }
 
@@ -120,7 +188,7 @@ func (a *Arena) MakeString(s string) string {
 	if len(s) == 0 {
 		return ""
 	}
-	ptr := a.raw.Alloc(uint64(len(s)), 1)
+	ptr := a.Allocator.Alloc(uint64(len(s)), 1)
 	copy((*[1 << 30]byte)(ptr)[:len(s):len(s)], s)
 	return unsafe.String((*byte)(ptr), len(s))
 }
@@ -147,7 +215,7 @@ func CloneString(s string) string {
 //	// ... use obj ...
 //	arena.DeleteObject(a, obj)
 func DeleteObject[T any](a *Arena, obj *T) {
-	a.raw.Remove(unsafe.Pointer(obj))
+	a.Allocator.Remove(unsafe.Pointer(obj))
 }
 
 // DeleteSlice marks an arena-allocated slice for deletion.
@@ -161,7 +229,7 @@ func DeleteObject[T any](a *Arena, obj *T) {
 //	arena.DeleteSlice(a, slice)
 func DeleteSlice[T any](a *Arena, slice []T) {
 	if len(slice) > 0 {
-		a.raw.Remove(unsafe.Pointer(&slice[0]))
+		a.Allocator.Remove(unsafe.Pointer(&slice[0]))
 	}
 }
 
@@ -176,6 +244,6 @@ func DeleteSlice[T any](a *Arena, slice []T) {
 //	arena.DeleteString(a, str)
 func DeleteString(a *Arena, s string) {
 	if len(s) > 0 {
-		a.raw.Remove(unsafe.Pointer(unsafe.StringData(s)))
+		a.Allocator.Remove(unsafe.Pointer(unsafe.StringData(s)))
 	}
 }

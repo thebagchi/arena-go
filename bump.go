@@ -1,6 +1,7 @@
 package arena
 
 import (
+	"sort"
 	"sync"
 	"unsafe"
 )
@@ -70,4 +71,35 @@ func (b *BumpAllocator) Delete() {
 // Note: This does not invalidate any pointers.
 func (b *BumpAllocator) Remove(ptr unsafe.Pointer) {
 	// no op for bump allocator
+}
+
+// Owns checks if the given pointer belongs to memory managed by this allocator.
+func (b *BumpAllocator) Owns(ptr unsafe.Pointer) bool {
+	b.mtx.Lock()
+	defer b.mtx.Unlock()
+
+	if ptr == nil {
+		return false
+	}
+
+	ptrAddr := uintptr(ptr)
+
+	// Binary search to find the chunk that might contain the pointer
+	// Chunks are allocated sequentially, so they should be in increasing memory order
+	idx := sort.Search(len(b.chunks), func(i int) bool {
+		chunkStart := uintptr(unsafe.Pointer(&b.chunks[i][0]))
+		return ptrAddr < chunkStart
+	})
+
+	// If idx == 0, pointer is before first chunk
+	if idx == 0 {
+		return false
+	}
+
+	// Check the previous chunk (idx - 1) since sort.Search returns insertion point
+	chunk := b.chunks[idx-1]
+	chunkStart := uintptr(unsafe.Pointer(&chunk[0]))
+	chunkEnd := chunkStart + uintptr(len(chunk))
+
+	return ptrAddr >= chunkStart && ptrAddr < chunkEnd
 }
