@@ -4,7 +4,7 @@ This directory contains examples demonstrating the usage of the arena-go library
 
 ## Running the Example
 
-To run the main example that showcases ArenaSlice with different types:
+To run the main example that showcases Slice with different types:
 
 ```bash
 cd example
@@ -13,7 +13,7 @@ go run main.go
 
 ## What the Example Demonstrates
 
-The `main.go` file shows how to use `ArenaSlice` with:
+The `main.go` file shows how to use `Slice` with:
 
 1. **Integer slices**: Creating, appending, and manipulating int slices
 2. **String slices**: Working with strings, including search operations
@@ -32,7 +32,7 @@ Key features demonstrated:
 
 When run, the example will output:
 ```
-=== ArenaSlice Examples ===
+=== Slice Examples ===
 
 1. Integer Slice:
 Length: 8, Capacity: 16

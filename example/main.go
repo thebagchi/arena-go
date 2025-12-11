@@ -21,7 +21,7 @@ func main() {
 
 	// 1. Integer slice
 	fmt.Println("\n1. Integer Slice:")
-	intSlice := arena.MakeArenaSlice[int](a)
+	intSlice := arena.NewSlice[int](a)
 	intSlice.AppendSlice([]int{1, 2, 3, 4, 5})
 	intSlice.Append(6, 7, 8) // Append multiple at once
 
@@ -36,7 +36,7 @@ func main() {
 
 	// 2. String slice
 	fmt.Println("\n2. String Slice:")
-	stringSlice := arena.MakeArenaSlice[string](a, "hello", "world")
+	stringSlice := arena.NewSlice[string](a, "hello", "world")
 	stringSlice.AppendSlice([]string{"arena", "memory"})
 	stringSlice.Push("allocation") // Using Push alias
 
@@ -56,7 +56,7 @@ func main() {
 	person3 := arena.Ptr(a, Person{Name: "Charlie", Age: 35})
 
 	// Create a slice of pointers to Person
-	pointerSlice := arena.MakeArenaSlice[*Person](a)
+	pointerSlice := arena.NewSlice[*Person](a)
 	pointerSlice.Append(person1, person2, person3)
 
 	fmt.Printf("Number of people: %d\n", pointerSlice.Len())
@@ -80,6 +80,83 @@ func main() {
 	fmt.Println("\n4. Clone to heap:")
 	clonedInts := intSlice.Clone()
 	fmt.Printf("Cloned integers: %v\n", clonedInts)
+
+	fmt.Println("\n=== ArenaMap Examples ===")
+
+	// 5. String to int map
+	fmt.Println("\n5. String to Int Map:")
+	stringMap := arena.NewMap[string, int](a)
+	stringMap.Set("alice", 30)
+	stringMap.Set("bob", 25)
+	stringMap.Set("charlie", 35)
+
+	// Add more entries to trigger growth
+	for i := 0; i < 20; i++ {
+		stringMap.Set(fmt.Sprintf("person%d", i), i*10)
+	}
+
+	fmt.Printf("Map length: %d\n", stringMap.Len())
+
+	// Get values
+	if age, found := stringMap.Get("alice"); found {
+		fmt.Printf("Alice's age: %d\n", age)
+	}
+
+	// Range over map
+	fmt.Println("All entries:")
+	stringMap.Range(func(key string, value int) bool {
+		fmt.Printf("  %s: %d\n", key, value)
+		return true
+	})
+
+	// Update and delete
+	stringMap.Set("alice", 31) // Update
+	stringMap.Delete("bob")    // Delete
+
+	fmt.Printf("After update/delete, length: %d\n", stringMap.Len())
+
+	// Demonstrate Clone (heap escape)
+	fmt.Println("\n6. Clone Map to heap:")
+	clonedMap := stringMap.Clone()
+	fmt.Printf("Cloned map: %v\n", clonedMap)
+
+	// Demonstrate iterators
+	fmt.Println("\n7. Iterator Examples:")
+
+	// Keys iterator
+	fmt.Print("Keys: ")
+	count := 0
+	for key := range stringMap.Keys() {
+		if count < 5 {
+			fmt.Printf("%s ", key)
+		}
+		count++
+	}
+	fmt.Printf("... (total: %d)\n", count)
+
+	// All iterator (key-value pairs)
+	fmt.Println("First 3 entries using All():")
+	count = 0
+	for key, val := range stringMap.All() {
+		if count < 3 {
+			fmt.Printf("  %s: %d\n", key, val)
+		}
+		count++
+		if count >= 3 {
+			break
+		}
+	}
+
+	// Pull-based iterator
+	fmt.Println("First 3 entries using Iter():")
+	iter := stringMap.Iter()
+	for i := 0; i < 3; i++ {
+		key, val, ok := iter.Next()
+		if !ok {
+			break
+		}
+		fmt.Printf("  %s: %d\n", key, val)
+	}
 
 	// Arena is automatically cleaned up when main exits (defer a.Delete())
 	fmt.Println("\n=== Example completed successfully! ===")

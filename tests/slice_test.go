@@ -1,16 +1,18 @@
-package arena
+package arena_test
 
 import (
 	"reflect"
 	"testing"
+
+	"github.com/thebagchi/arena-go"
 )
 
 func TestArenaSliceBasic(t *testing.T) {
-	a := New(1024, BUMP)
+	a := arena.New(1024, arena.BUMP)
 	defer a.Delete()
 
 	// Test empty slice
-	slice := MakeArenaSlice[int](a)
+	slice := arena.NewSlice[int](a)
 	if slice.Len() != 0 {
 		t.Errorf("Expected length 0, got %d", slice.Len())
 	}
@@ -29,10 +31,10 @@ func TestArenaSliceBasic(t *testing.T) {
 }
 
 func TestArenaSliceAppendSlice(t *testing.T) {
-	a := New(1024, BUMP)
+	a := arena.New(1024, arena.BUMP)
 	defer a.Delete()
 
-	slice := MakeArenaSlice[int](a)
+	slice := arena.NewSlice[int](a)
 
 	// Test appending empty slice
 	slice.AppendSlice([]int{})
@@ -62,11 +64,11 @@ func TestArenaSliceAppendSlice(t *testing.T) {
 }
 
 func TestArenaSliceSSO(t *testing.T) {
-	a := New(1024, BUMP)
+	a := arena.New(1024, arena.BUMP)
 	defer a.Delete()
 
 	// Test small slice stays in SSO
-	small := MakeArenaSlice[int](a, 1, 2, 3)
+	small := arena.NewSlice[int](a, 1, 2, 3)
 	if small.Len() != 3 {
 		t.Errorf("Expected length 3, got %d", small.Len())
 	}
@@ -96,10 +98,10 @@ func TestArenaSliceSSO(t *testing.T) {
 }
 
 func TestArenaSliceReset(t *testing.T) {
-	a := New(1024, BUMP)
+	a := arena.New(1024, arena.BUMP)
 	defer a.Delete()
 
-	slice := MakeArenaSlice[int](a)
+	slice := arena.NewSlice[int](a)
 	slice.AppendSlice([]int{1, 2, 3, 4, 5})
 
 	if slice.Len() != 5 {
@@ -127,9 +129,9 @@ func TestArenaSliceReset(t *testing.T) {
 }
 
 func TestArenaSliceClone(t *testing.T) {
-	a := New(1024, BUMP)
+	a := arena.New(1024, arena.BUMP)
 
-	slice := MakeArenaSlice[string](a)
+	slice := arena.NewSlice[string](a)
 	slice.AppendSlice([]string{"hello", "world", "arena"})
 
 	cloned := slice.Clone()
@@ -148,10 +150,10 @@ func TestArenaSliceClone(t *testing.T) {
 }
 
 func TestArenaSliceIterators(t *testing.T) {
-	a := New(1024, BUMP)
+	a := arena.New(1024, arena.BUMP)
 	defer a.Delete()
 
-	slice := MakeArenaSlice[int](a)
+	slice := arena.NewSlice[int](a)
 	data := []int{10, 20, 30, 40, 50}
 	slice.AppendSlice(data)
 
@@ -187,7 +189,7 @@ func TestArenaSliceIterators(t *testing.T) {
 	}
 
 	// Test iterator on empty slice
-	empty := MakeArenaSlice[int](a)
+	empty := arena.NewSlice[int](a)
 	iter2 := empty.Iter()
 	if v, ok := iter2.Next(); ok {
 		t.Errorf("Empty iterator should return false, got value %d", v)
@@ -195,10 +197,10 @@ func TestArenaSliceIterators(t *testing.T) {
 }
 
 func TestArenaSliceRangeLoop(t *testing.T) {
-	a := New(1024, BUMP)
+	a := arena.New(1024, arena.BUMP)
 	defer a.Delete()
 
-	slice := MakeArenaSlice[string](a)
+	slice := arena.NewSlice[string](a)
 	slice.AppendSlice([]string{"apple", "banana", "cherry"})
 
 	// Test range loop
@@ -211,10 +213,10 @@ func TestArenaSliceRangeLoop(t *testing.T) {
 }
 
 func TestArenaSliceLargeData(t *testing.T) {
-	a := New(100*1024, BUMP) // 100KB arena
+	a := arena.New(100*1024, arena.BUMP) // 100KB arena
 	defer a.Delete()
 
-	slice := MakeArenaSlice[int](a)
+	slice := arena.NewSlice[int](a)
 
 	// Add a lot of data to force arena allocation
 	for i := 0; i < 1000; i++ {
@@ -234,13 +236,13 @@ func TestArenaSliceLargeData(t *testing.T) {
 }
 
 func TestArenaSliceGenerics(t *testing.T) {
-	a := New(1024, BUMP)
+	a := arena.New(1024, arena.BUMP)
 	defer a.Delete()
 
 	// Test with different types
-	intSlice := MakeArenaSlice[int](a, 1, 2, 3)
-	stringSlice := MakeArenaSlice[string](a, "a", "b", "c")
-	boolSlice := MakeArenaSlice[bool](a, true, false, true)
+	intSlice := arena.NewSlice[int](a, 1, 2, 3)
+	stringSlice := arena.NewSlice[string](a, "a", "b", "c")
+	boolSlice := arena.NewSlice[bool](a, true, false, true)
 
 	if intSlice.Len() != 3 || stringSlice.Len() != 3 || boolSlice.Len() != 3 {
 		t.Error("Generic type slices failed")
@@ -250,7 +252,7 @@ func TestArenaSliceGenerics(t *testing.T) {
 	type Point struct {
 		X, Y int
 	}
-	structSlice := MakeArenaSlice[Point](a)
+	structSlice := arena.NewSlice[Point](a)
 	structSlice.Append(Point{1, 2})
 	structSlice.Append(Point{3, 4})
 
@@ -260,11 +262,11 @@ func TestArenaSliceGenerics(t *testing.T) {
 }
 
 func TestArenaSliceEdgeCases(t *testing.T) {
-	a := New(1024, BUMP)
+	a := arena.New(1024, arena.BUMP)
 	defer a.Delete()
 
 	// Test zero-sized types
-	slice := MakeArenaSlice[struct{}](a)
+	slice := arena.NewSlice[struct{}](a)
 	for i := 0; i < 10; i++ {
 		slice.Append(struct{}{})
 	}
@@ -273,7 +275,7 @@ func TestArenaSliceEdgeCases(t *testing.T) {
 	}
 
 	// Test Clone on empty slice
-	empty := MakeArenaSlice[int](a)
+	empty := arena.NewSlice[int](a)
 	cloned := empty.Clone()
 	if cloned != nil {
 		t.Errorf("Clone of empty slice should return nil, got %v", cloned)
@@ -287,12 +289,12 @@ func TestArenaSliceEdgeCases(t *testing.T) {
 }
 
 func BenchmarkArenaSliceAppend(b *testing.B) {
-	a := New(1024*1024, BUMP) // 1MB arena
+	a := arena.New(1024*1024, arena.BUMP) // 1MB arena
 	defer a.Delete()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		slice := MakeArenaSlice[int](a)
+		slice := arena.NewSlice[int](a)
 		for j := 0; j < 100; j++ {
 			slice.Append(j)
 		}
@@ -303,7 +305,7 @@ func BenchmarkArenaSliceAppend(b *testing.B) {
 }
 
 func BenchmarkArenaSliceAppendSlice(b *testing.B) {
-	a := New(1024*1024, BUMP)
+	a := arena.New(1024*1024, arena.BUMP)
 	defer a.Delete()
 
 	data := make([]int, 100)
@@ -313,7 +315,7 @@ func BenchmarkArenaSliceAppendSlice(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		slice := MakeArenaSlice[int](a)
+		slice := arena.NewSlice[int](a)
 		slice.AppendSlice(data)
 		if i%100 == 0 {
 			a.Reset()
@@ -322,10 +324,10 @@ func BenchmarkArenaSliceAppendSlice(b *testing.B) {
 }
 
 func BenchmarkArenaSliceIterate(b *testing.B) {
-	a := New(1024*1024, BUMP)
+	a := arena.New(1024*1024, arena.BUMP)
 	defer a.Delete()
 
-	slice := MakeArenaSlice[int](a)
+	slice := arena.NewSlice[int](a)
 	for i := 0; i < 1000; i++ {
 		slice.Append(i)
 	}

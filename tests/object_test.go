@@ -1,21 +1,23 @@
-package arena
+package arena_test
 
 import (
 	"testing"
 	"unsafe"
+
+	"github.com/thebagchi/arena-go"
 )
 
 func TestAppend(t *testing.T) {
-	a := New(1024, BUMP)
+	a := arena.New(1024, arena.BUMP)
 	defer a.Delete()
 
 	// Test basic append
-	slice := MakeSlice[int](a, 2, 4)
+	slice := arena.MakeSlice[int](a, 2, 4)
 	slice[0] = 1
 	slice[1] = 2
 
 	// Append elements
-	slice = Append(a, slice, 3, 4)
+	slice = arena.Append(a, slice, 3, 4)
 	if len(slice) != 4 {
 		t.Errorf("Expected length 4, got %d", len(slice))
 	}
@@ -30,7 +32,7 @@ func TestAppend(t *testing.T) {
 	}
 
 	// Test append that requires growing
-	slice = Append(a, slice, 5, 6, 7) // This should grow the slice
+	slice = arena.Append(a, slice, 5, 6, 7) // This should grow the slice
 	if len(slice) != 7 {
 		t.Errorf("Expected length 7 after growth, got %d", len(slice))
 	}
@@ -39,20 +41,20 @@ func TestAppend(t *testing.T) {
 	}
 
 	// Test append empty
-	slice = Append(a, slice) // Should not change anything
+	slice = arena.Append(a, slice) // Should not change anything
 	if len(slice) != 7 {
 		t.Errorf("Empty append changed length to %d", len(slice))
 	}
 }
 
 func TestAppendStrings(t *testing.T) {
-	a := New(1024, BUMP)
+	a := arena.New(1024, arena.BUMP)
 	defer a.Delete()
 
-	slice := MakeSlice[string](a, 1, 2)
+	slice := arena.MakeSlice[string](a, 1, 2)
 	slice[0] = "hello"
 
-	slice = Append(a, slice, "world", "arena")
+	slice = arena.Append(a, slice, "world", "arena")
 	if len(slice) != 3 {
 		t.Errorf("Expected length 3, got %d", len(slice))
 	}
@@ -65,33 +67,33 @@ func TestAppendStrings(t *testing.T) {
 }
 
 func TestOwns(t *testing.T) {
-	a := New(1024, BUMP)
+	a := arena.New(1024, arena.BUMP)
 	defer a.Delete()
 
 	// Test nil pointer
 	if a.Owns(nil) {
-		t.Error("Owns(nil) should return false")
+		t.Error("a.Owns(nil) should return false")
 	}
 
 	// Test heap pointer
 	heapPtr := new(int)
-	if OwnsPtr(a, heapPtr) {
+	if arena.OwnsPtr(a, heapPtr) {
 		t.Error("OwnsPtr should return false for heap pointers")
 	}
 
 	// Test arena pointers
-	obj := MakeObject[int](a)
-	if !OwnsPtr(a, obj) {
+	obj := arena.MakeObject[int](a)
+	if !arena.OwnsPtr(a, obj) {
 		t.Error("OwnsPtr should return true for arena pointers")
 	}
 
-	slice := MakeSlice[int](a, 5, 10)
-	if !OwnsSlice(a, slice) {
+	slice := arena.MakeSlice[int](a, 5, 10)
+	if !arena.OwnsSlice(a, slice) {
 		t.Error("OwnsSlice should return true for arena slice pointers")
 	}
 
 	str := a.MakeString("test")
-	if !OwnsString(a, str) {
+	if !arena.OwnsString(a, str) {
 		t.Error("OwnsString should return true for arena string pointers")
 	}
 
@@ -103,19 +105,19 @@ func TestOwns(t *testing.T) {
 }
 
 func TestPtr(t *testing.T) {
-	a := New(1024, BUMP)
+	a := arena.New(1024, arena.BUMP)
 	defer a.Delete()
 
 	// Test with int
 	value := 42
-	ptr := Ptr(a, value)
+	ptr := arena.Ptr(a, value)
 	if ptr == nil {
 		t.Fatal("Ptr returned nil")
 	}
 	if *ptr != 42 {
 		t.Errorf("Expected *ptr = 42, got %d", *ptr)
 	}
-	if !OwnsPtr(a, ptr) {
+	if !arena.OwnsPtr(a, ptr) {
 		t.Error("Ptr should allocate in arena")
 	}
 
@@ -135,27 +137,27 @@ func TestPtr(t *testing.T) {
 		Age  int
 	}
 	person := Person{Name: "Alice", Age: 30}
-	personPtr := Ptr(a, person)
+	personPtr := arena.Ptr(a, person)
 	if personPtr == nil {
 		t.Fatal("Ptr returned nil for struct")
 	}
 	if personPtr.Name != "Alice" || personPtr.Age != 30 {
 		t.Errorf("Expected Person{Alice, 30}, got %+v", *personPtr)
 	}
-	if !OwnsPtr(a, personPtr) {
+	if !arena.OwnsPtr(a, personPtr) {
 		t.Error("Ptr should allocate struct in arena")
 	}
 
 	// Test with string
 	str := "hello"
-	strPtr := Ptr(a, str)
+	strPtr := arena.Ptr(a, str)
 	if *strPtr != "hello" {
 		t.Errorf("Expected string 'hello', got '%s'", *strPtr)
 	}
 
 	// Test with slice (copies the slice header, not the backing array)
 	slice := []int{1, 2, 3}
-	slicePtr := Ptr(a, slice)
+	slicePtr := arena.Ptr(a, slice)
 	if len(*slicePtr) != 3 {
 		t.Errorf("Expected slice length 3, got %d", len(*slicePtr))
 	}
