@@ -139,20 +139,35 @@ func Append[T any](a *Arena, slice []T, elems ...T) []T {
 	if len(elems) == 0 {
 		return slice
 	}
-	// Calculate new length
+
+	// Fast path for single element append (most common case)
+	if len(elems) == 1 {
+		length := len(slice) + 1
+		if length <= cap(slice) {
+			// Have capacity, direct assignment
+			slice = slice[:length]
+			slice[length-1] = elems[0]
+			return slice
+		}
+		// Need to grow
+		capacity := max(cap(slice)*2, 4)
+		temp := MakeSlice[T](a, length, capacity)
+		copy(temp, slice)
+		temp[length-1] = elems[0]
+		if len(slice) > 0 {
+			a.Allocator.Remove(unsafe.Pointer(&slice[0]))
+		}
+		return temp
+	}
+
+	// Multi-element append
 	length := len(slice) + len(elems)
-	// Check if we need to grow
 	if length > cap(slice) {
 		// Need to allocate new backing
 		capacity := max(max(cap(slice)*2, length), 4)
-
-		// Allocate new slice in arena
 		temp := MakeSlice[T](a, length, capacity)
-		// Copy existing elements
 		copy(temp[:len(slice)], slice)
-		// Copy new elements
 		copy(temp[len(slice):], elems)
-		// Mark old slice backing for deletion (if slice is not empty)
 		if len(slice) > 0 {
 			a.Allocator.Remove(unsafe.Pointer(&slice[0]))
 		}
