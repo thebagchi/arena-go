@@ -16,7 +16,7 @@ const INITIAL_BUCKET_COUNT = 16 // Initial number of buckets in the hash map
 type Map[K comparable, V any] struct {
 	mu      sync.RWMutex
 	arena   *Arena
-	buckets *Slice[*entry[K, V]] // arena-backed bucket array (array of pointers to chain heads)
+	buckets *Vec[*entry[K, V]] // arena-backed bucket array (array of pointers to chain heads)
 	count   int
 	cap     int
 	mask    uint64
@@ -33,8 +33,8 @@ type entry[K comparable, V any] struct {
 
 // NewMap creates a new Map with separate chaining for collision resolution
 func NewMap[K comparable, V any](a *Arena) *Map[K, V] {
-	// Create arena-backed slice for buckets
-	buckets := NewSlice[*entry[K, V]](a)
+	// Create arena-backed vec for buckets
+	buckets := NewVec[*entry[K, V]](a)
 
 	// Initialize with nil pointers
 	for i := 0; i < INITIAL_BUCKET_COUNT; i++ {
@@ -243,8 +243,8 @@ func (m *Map[K, V]) grow() {
 		ncap = INITIAL_BUCKET_COUNT
 	}
 
-	// Allocate new bucket array using Slice
-	nbkt := NewSlice[*entry[K, V]](m.arena)
+	// Allocate new bucket array using Vec
+	nbkt := NewVec[*entry[K, V]](m.arena)
 
 	// Initialize with nil pointers
 	for i := 0; i < ncap; i++ {

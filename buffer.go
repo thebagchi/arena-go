@@ -34,8 +34,7 @@ func (s *Buffer) Append(bytes []byte) {
 	if len(bytes) == 0 {
 		return
 	}
-
-	s.growIfNeeded(len(bytes))
+	s.grow(len(bytes))
 	s.buf = append(s.buf, bytes...)
 }
 
@@ -44,8 +43,8 @@ func (s *Buffer) AppendString(str string) {
 	s.Append(unsafe.Slice(unsafe.StringData(str), len(str)))
 }
 
-// growIfNeeded ensures capacity >= len + needed
-func (s *Buffer) growIfNeeded(needed int) {
+// grow ensures capacity >= len + needed
+func (s *Buffer) grow(needed int) {
 	if len(s.buf)+needed <= cap(s.buf) {
 		return
 	}
@@ -66,20 +65,27 @@ func (s *Buffer) Reset() {
 	s.buf = s.buf[:0]
 }
 
-// Clone returns a heap-allocated copy of the string that escapes the arena.
+// Bytes returns the inner byte slice backed by arena memory.
+// Warning: Do not modify the returned slice, as it's shared with the buffer.
+// The slice is only valid until the arena is deleted or reset.
+func (s *Buffer) Bytes() []byte {
+	return s.buf
+}
+
+// CloneString returns a heap-allocated copy of the string that escapes the arena.
 // The returned string is independent of the arena lifecycle and can be safely
 // used after the arena is deleted. Use this when you need to preserve string
 // data beyond the arena's lifetime.
-func (s *Buffer) Clone() string {
+func (s *Buffer) CloneString() string {
 	if len(s.buf) == 0 {
 		return ""
 	}
-	return string(s.Bytes())
+	return string(s.CloneBytes())
 }
 
-// Bytes returns a copy of the string content as a heap-allocated byte slice.
+// CloneBytes returns a heap-allocated copy of the buffer content.
 // The returned slice is independent of the arena and safe to use after arena deletion.
-func (s *Buffer) Bytes() []byte {
+func (s *Buffer) CloneBytes() []byte {
 	if len(s.buf) == 0 {
 		return nil
 	}
@@ -88,14 +94,21 @@ func (s *Buffer) Bytes() []byte {
 	return b
 }
 
-// NewBuffer creates a new Buffer backed by the arena
+// NewBuffer creates a new Buffer backed by the arena with initial 32-byte capacity
 func NewBuffer(a *Arena) *Buffer {
-	return &Buffer{arena: a}
+	return &Buffer{
+		arena: a,
+		buf:   MakeSlice[byte](a, 0, 32),
+	}
 }
 
 // NewBufferString creates a new Buffer with initial string content
 func NewBufferString(a *Arena, s string) *Buffer {
-	buf := &Buffer{arena: a}
+	capacity := max(len(s)*2, 32)
+	buf := &Buffer{
+		arena: a,
+		buf:   MakeSlice[byte](a, 0, capacity),
+	}
 	buf.AppendString(s)
 	return buf
 }
