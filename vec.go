@@ -429,7 +429,7 @@ func (s *Vec[T]) ToSlice() []T {
 // Keys returns an iterator over indices
 func (s *Vec[T]) Keys() iter.Seq[int] {
 	return func(yield func(int) bool) {
-		for i := 0; i < len(s.data); i++ {
+		for i := range len(s.data) {
 			if !yield(i) {
 				return
 			}

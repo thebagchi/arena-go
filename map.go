@@ -37,7 +37,7 @@ func NewMap[K comparable, V any](a *Arena) *Map[K, V] {
 	buckets := NewVec[*entry[K, V]](a)
 
 	// Initialize with nil pointers
-	for i := 0; i < INITIAL_BUCKET_COUNT; i++ {
+	for range INITIAL_BUCKET_COUNT {
 		buckets.AppendOne(nil)
 	}
 
@@ -211,7 +211,7 @@ func (m *Map[K, V]) Range(f func(K, V) bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	for i := 0; i < m.cap; i++ {
+	for i := range m.cap {
 		e, ok := m.buckets.Get(i)
 		if !ok {
 			panic("arena map: bucket index out of bounds")
@@ -247,7 +247,7 @@ func (m *Map[K, V]) grow() {
 	nbkt := NewVec[*entry[K, V]](m.arena)
 
 	// Initialize with nil pointers
-	for i := 0; i < ncap; i++ {
+	for range ncap {
 		nbkt.AppendOne(nil)
 	}
 
@@ -259,8 +259,7 @@ func (m *Map[K, V]) grow() {
 	m.count = 0
 
 	// Rehash all entries from old chains
-	for i := 0; i < ocap; i++ {
-		e := obkt[i]
+	for _, e := range obkt {
 		// Walk each chain
 		for e != nil {
 			next := e.next // Save next before we modify e.next
@@ -291,7 +290,7 @@ func (m *Map[K, V]) Reset() {
 	defer m.mu.Unlock()
 
 	// Free all entry nodes
-	for i := 0; i < m.cap; i++ {
+	for i := range m.cap {
 		e, ok := m.buckets.Get(i)
 		if !ok {
 			panic("arena map: bucket index out of bounds")
@@ -319,7 +318,7 @@ func (m *Map[K, V]) Clone() map[K]V {
 	}
 
 	result := make(map[K]V, m.count)
-	for i := 0; i < m.cap; i++ {
+	for i := range m.cap {
 		e, ok := m.buckets.Get(i)
 		if !ok {
 			panic("arena map: bucket index out of bounds")
@@ -351,7 +350,7 @@ func (m *Map[K, V]) Keys() iter.Seq[K] {
 		m.mu.RLock()
 		defer m.mu.RUnlock()
 
-		for i := 0; i < m.cap; i++ {
+		for i := range m.cap {
 			e, ok := m.buckets.Get(i)
 			if !ok {
 				panic("arena map: bucket index out of bounds")
@@ -380,7 +379,7 @@ func (m *Map[K, V]) Values() iter.Seq[V] {
 		m.mu.RLock()
 		defer m.mu.RUnlock()
 
-		for i := 0; i < m.cap; i++ {
+		for i := range m.cap {
 			e, ok := m.buckets.Get(i)
 			if !ok {
 				panic("arena map: bucket index out of bounds")
@@ -409,7 +408,7 @@ func (m *Map[K, V]) All() iter.Seq2[K, V] {
 		m.mu.RLock()
 		defer m.mu.RUnlock()
 
-		for i := 0; i < m.cap; i++ {
+		for i := range m.cap {
 			e, ok := m.buckets.Get(i)
 			if !ok {
 				panic("arena map: bucket index out of bounds")

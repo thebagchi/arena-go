@@ -130,7 +130,7 @@ func (sl *SkipList[K, V]) Insert(key K, value V) {
 	n.level = level
 	n.forward = MakeSlice[*node[K, V]](sl.arena, level+1, level+1)
 
-	for i := 0; i <= level; i++ {
+	for i := range level + 1 {
 		n.forward[i] = update[i].forward[i]
 		update[i].forward[i] = n
 	}
@@ -156,7 +156,7 @@ func (sl *SkipList[K, V]) Delete(key K) bool {
 		return false
 	}
 
-	for i := 0; i <= sl.level; i++ {
+	for i := range sl.level + 1 {
 		if update[i].forward[i] != x {
 			break
 		}

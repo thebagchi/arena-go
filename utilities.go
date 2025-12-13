@@ -49,6 +49,19 @@ func OwnsPtr[T any](a *Arena, ptr *T) bool {
 	return a.Allocator.Owns(unsafe.Pointer(ptr))
 }
 
+// UnsafeBytes converts a string to a byte slice without copying (unsafe).
+func UnsafeBytes(s string) []byte {
+	return unsafe.Slice(unsafe.StringData(s), len(s))
+}
+
+// UnsafeString converts a byte slice to a string without copying (unsafe).
+func UnsafeString(b []byte) string {
+	if len(b) == 0 {
+		return ""
+	}
+	return unsafe.String(&b[0], len(b))
+}
+
 // OwnsSlice checks if the underlying array of the given slice belongs to memory managed by this arena.
 // Returns false for nil or empty slices.
 func OwnsSlice[T any](a *Arena, slice []T) bool {

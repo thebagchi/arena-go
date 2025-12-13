@@ -19,7 +19,7 @@ func TestToBytes(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := arena.ToBytes(tt.s)
+			got := arena.UnsafeBytes(tt.s)
 			if len(got) != len(tt.want) {
 				t.Errorf("ToBytes() length = %v, want %v", len(got), len(tt.want))
 				return
@@ -45,7 +45,7 @@ func TestToString(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := arena.ToString(tt.b)
+			got := arena.UnsafeString(tt.b)
 			if got != tt.want {
 				t.Errorf("ToString() = %v, want %v", got, tt.want)
 			}
@@ -54,6 +54,7 @@ func TestToString(t *testing.T) {
 }
 
 func TestTrimSpace(t *testing.T) {
+	a := arena.New(1, arena.BUMP); str := arena.NewStr(a)
 	tests := []struct {
 		name string
 		s    string
@@ -71,7 +72,7 @@ func TestTrimSpace(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := arena.TrimSpace(tt.s)
+			got := str.TrimSpace(tt.s)
 			if got != tt.want {
 				t.Errorf("TrimSpace(%q) = %q, want %q", tt.s, got, tt.want)
 			}
@@ -80,6 +81,8 @@ func TestTrimSpace(t *testing.T) {
 }
 
 func TestIsEmpty(t *testing.T) {
+	a := arena.New(1, arena.BUMP)
+	str := arena.NewStr(a)
 	tests := []struct {
 		name string
 		s    string
@@ -95,7 +98,7 @@ func TestIsEmpty(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := arena.IsEmpty(tt.s)
+			got := str.IsEmpty(tt.s)
 			if got != tt.want {
 				t.Errorf("IsEmpty(%q) = %v, want %v", tt.s, got, tt.want)
 			}
@@ -104,6 +107,8 @@ func TestIsEmpty(t *testing.T) {
 }
 
 func TestContains(t *testing.T) {
+	a := arena.New(1, arena.BUMP)
+	str := arena.NewStr(a)
 	tests := []struct {
 		name   string
 		s      string
@@ -119,7 +124,7 @@ func TestContains(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := arena.Contains(tt.s, tt.substr)
+			got := str.Contains(tt.s, tt.substr)
 			if got != tt.want {
 				t.Errorf("Contains(%q, %q) = %v, want %v", tt.s, tt.substr, got, tt.want)
 			}
@@ -128,6 +133,8 @@ func TestContains(t *testing.T) {
 }
 
 func TestHasPrefix(t *testing.T) {
+	a := arena.New(1, arena.BUMP)
+	str := arena.NewStr(a)
 	tests := []struct {
 		name   string
 		s      string
@@ -142,7 +149,7 @@ func TestHasPrefix(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := arena.HasPrefix(tt.s, tt.prefix)
+			got := str.HasPrefix(tt.s, tt.prefix)
 			if got != tt.want {
 				t.Errorf("HasPrefix(%q, %q) = %v, want %v", tt.s, tt.prefix, got, tt.want)
 			}
@@ -151,6 +158,8 @@ func TestHasPrefix(t *testing.T) {
 }
 
 func TestHasSuffix(t *testing.T) {
+	a := arena.New(1, arena.BUMP)
+	str := arena.NewStr(a)
 	tests := []struct {
 		name   string
 		s      string
@@ -165,7 +174,7 @@ func TestHasSuffix(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := arena.HasSuffix(tt.s, tt.suffix)
+			got := str.HasSuffix(tt.s, tt.suffix)
 			if got != tt.want {
 				t.Errorf("HasSuffix(%q, %q) = %v, want %v", tt.s, tt.suffix, got, tt.want)
 			}
@@ -174,6 +183,8 @@ func TestHasSuffix(t *testing.T) {
 }
 
 func TestIndex(t *testing.T) {
+	a := arena.New(1, arena.BUMP)
+	str := arena.NewStr(a)
 	tests := []struct {
 		name   string
 		s      string
@@ -189,7 +200,7 @@ func TestIndex(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := arena.Index(tt.s, tt.substr)
+			got := str.Index(tt.s, tt.substr)
 			if got != tt.want {
 				t.Errorf("Index(%q, %q) = %v, want %v", tt.s, tt.substr, got, tt.want)
 			}
@@ -198,6 +209,8 @@ func TestIndex(t *testing.T) {
 }
 
 func TestLastIndex(t *testing.T) {
+	a := arena.New(1, arena.BUMP)
+	str := arena.NewStr(a)
 	tests := []struct {
 		name   string
 		s      string
@@ -212,7 +225,7 @@ func TestLastIndex(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := arena.LastIndex(tt.s, tt.substr)
+			got := str.LastIndex(tt.s, tt.substr)
 			if got != tt.want {
 				t.Errorf("LastIndex(%q, %q) = %v, want %v", tt.s, tt.substr, got, tt.want)
 			}
@@ -221,6 +234,8 @@ func TestLastIndex(t *testing.T) {
 }
 
 func TestTrim(t *testing.T) {
+	a := arena.New(1, arena.BUMP)
+	str := arena.NewStr(a)
 	tests := []struct {
 		name   string
 		s      string
@@ -235,7 +250,7 @@ func TestTrim(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := arena.Trim(tt.s, tt.cutset)
+			got := str.Trim(tt.s, tt.cutset)
 			if got != tt.want {
 				t.Errorf("Trim(%q, %q) = %q, want %q", tt.s, tt.cutset, got, tt.want)
 			}
@@ -244,6 +259,8 @@ func TestTrim(t *testing.T) {
 }
 
 func TestTrimLeft(t *testing.T) {
+	a := arena.New(1, arena.BUMP)
+	str := arena.NewStr(a)
 	tests := []struct {
 		name   string
 		s      string
@@ -256,7 +273,7 @@ func TestTrimLeft(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := arena.TrimLeft(tt.s, tt.cutset)
+			got := str.TrimLeft(tt.s, tt.cutset)
 			if got != tt.want {
 				t.Errorf("TrimLeft(%q, %q) = %q, want %q", tt.s, tt.cutset, got, tt.want)
 			}
@@ -265,6 +282,8 @@ func TestTrimLeft(t *testing.T) {
 }
 
 func TestTrimRight(t *testing.T) {
+	a := arena.New(1, arena.BUMP)
+	str := arena.NewStr(a)
 	tests := []struct {
 		name   string
 		s      string
@@ -277,7 +296,7 @@ func TestTrimRight(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := arena.TrimRight(tt.s, tt.cutset)
+			got := str.TrimRight(tt.s, tt.cutset)
 			if got != tt.want {
 				t.Errorf("TrimRight(%q, %q) = %q, want %q", tt.s, tt.cutset, got, tt.want)
 			}
@@ -286,6 +305,8 @@ func TestTrimRight(t *testing.T) {
 }
 
 func TestEqualFold(t *testing.T) {
+	a := arena.New(1, arena.BUMP)
+	str := arena.NewStr(a)
 	tests := []struct {
 		name string
 		s    string
@@ -300,7 +321,7 @@ func TestEqualFold(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := arena.EqualFold(tt.s, tt.t)
+			got := str.EqualFold(tt.s, tt.t)
 			if got != tt.want {
 				t.Errorf("EqualFold(%q, %q) = %v, want %v", tt.s, tt.t, got, tt.want)
 			}
@@ -309,6 +330,8 @@ func TestEqualFold(t *testing.T) {
 }
 
 func TestCompare(t *testing.T) {
+	a := arena.New(1, arena.BUMP)
+	str := arena.NewStr(a)
 	tests := []struct {
 		name string
 		s    string
@@ -323,7 +346,7 @@ func TestCompare(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := arena.Compare(tt.s, tt.t)
+			got := str.Compare(tt.s, tt.t)
 			// Normalize to -1, 0, 1
 			if got < 0 {
 				got = -1
@@ -338,6 +361,8 @@ func TestCompare(t *testing.T) {
 }
 
 func TestToLower(t *testing.T) {
+	a := arena.New(1, arena.BUMP)
+	str := arena.NewStr(a)
 	tests := []struct {
 		name string
 		s    string
@@ -350,7 +375,7 @@ func TestToLower(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := arena.ToLower(tt.s)
+			got := str.ToLower(tt.s)
 			if got != tt.want {
 				t.Errorf("ToLower(%q) = %q, want %q", tt.s, got, tt.want)
 			}
@@ -359,6 +384,8 @@ func TestToLower(t *testing.T) {
 }
 
 func TestToUpper(t *testing.T) {
+	a := arena.New(1, arena.BUMP)
+	str := arena.NewStr(a)
 	tests := []struct {
 		name string
 		s    string
@@ -371,7 +398,7 @@ func TestToUpper(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := arena.ToUpper(tt.s)
+			got := str.ToUpper(tt.s)
 			if got != tt.want {
 				t.Errorf("ToUpper(%q) = %q, want %q", tt.s, got, tt.want)
 			}
@@ -380,6 +407,8 @@ func TestToUpper(t *testing.T) {
 }
 
 func TestTitle(t *testing.T) {
+	a := arena.New(1, arena.BUMP)
+	str := arena.NewStr(a)
 	tests := []struct {
 		name string
 		s    string
@@ -391,7 +420,7 @@ func TestTitle(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := arena.Title(tt.s)
+			got := str.Title(tt.s)
 			if got != tt.want {
 				t.Errorf("Title(%q) = %q, want %q", tt.s, got, tt.want)
 			}
@@ -401,6 +430,7 @@ func TestTitle(t *testing.T) {
 
 func TestSplit(t *testing.T) {
 	a := arena.New(1024, arena.BUMP)
+	str := arena.NewStr(a)
 	defer a.Delete()
 
 	tests := []struct {
@@ -417,7 +447,7 @@ func TestSplit(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := arena.Split(a, tt.s, tt.sep)
+			got := str.Split(tt.s, tt.sep)
 			if len(got) != len(tt.want) {
 				t.Errorf("Split(%q, %q) length = %v, want %v", tt.s, tt.sep, len(got), len(tt.want))
 				return
@@ -433,6 +463,7 @@ func TestSplit(t *testing.T) {
 
 func TestJoin(t *testing.T) {
 	a := arena.New(1024, arena.BUMP)
+	str := arena.NewStr(a)
 	defer a.Delete()
 
 	tests := []struct {
@@ -449,7 +480,7 @@ func TestJoin(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := arena.Join(a, tt.elems, tt.sep)
+			got := str.Join(tt.elems, tt.sep)
 			if got != tt.want {
 				t.Errorf("Join(%v, %q) = %q, want %q", tt.elems, tt.sep, got, tt.want)
 			}
@@ -459,6 +490,7 @@ func TestJoin(t *testing.T) {
 
 func TestFields(t *testing.T) {
 	a := arena.New(1024, arena.BUMP)
+	str := arena.NewStr(a)
 	defer a.Delete()
 
 	tests := []struct {
@@ -477,7 +509,7 @@ func TestFields(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := arena.Fields(a, tt.s)
+			got := str.Fields(tt.s)
 			if len(got) != len(tt.want) {
 				t.Errorf("Fields(%q) length = %v, want %v", tt.s, len(got), len(tt.want))
 				return
@@ -493,6 +525,7 @@ func TestFields(t *testing.T) {
 
 func TestSplitJoinRoundtrip(t *testing.T) {
 	a := arena.New(1024, arena.BUMP)
+	str := arena.NewStr(a)
 	defer a.Delete()
 
 	tests := []struct {
@@ -506,10 +539,341 @@ func TestSplitJoinRoundtrip(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			parts := arena.Split(a, tt.s, tt.sep)
-			got := arena.Join(a, parts, tt.sep)
+			parts := str.Split(tt.s, tt.sep)
+			got := str.Join(parts, tt.sep)
 			if got != tt.s {
 				t.Errorf("Split then Join roundtrip failed: got %q, want %q", got, tt.s)
+			}
+		})
+	}
+}
+
+func TestLines(t *testing.T) {
+	a := arena.New(1, arena.BUMP)
+	str := arena.NewStr(a)
+	tests := []struct {
+		name string
+		s    string
+		want []string
+	}{
+		{"empty", "", []string{}},
+		{"single line no newline", "hello", []string{"hello"}},
+		{"single line with newline", "hello\n", []string{"hello\n"}},
+		{"multiple lines", "line1\nline2\nline3", []string{"line1\n", "line2\n", "line3"}},
+		{"multiple lines no final newline", "line1\nline2\nline3", []string{"line1\n", "line2\n", "line3"}},
+		{"empty lines", "\n\n", []string{"\n", "\n"}},
+		{"mixed", "line1\n\nline3\n", []string{"line1\n", "\n", "line3\n"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got []string
+			for line := range str.Lines(tt.s) {
+				got = append(got, line)
+			}
+			if len(got) != len(tt.want) {
+				t.Errorf("Lines() length = %v, want %v", len(got), len(tt.want))
+				return
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("Lines()[%d] = %q, want %q", i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestClone(t *testing.T) {
+	a := arena.New(4096, arena.BUMP)
+	str := arena.NewStr(a)
+	defer a.Reset()
+
+	tests := []struct {
+		name string
+		s    string
+	}{
+		{"empty", ""},
+		{"simple", "hello"},
+		{"unicode", "世界"},
+		{"long", "this is a longer string with multiple words"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := str.Clone(tt.s)
+			if got != tt.s {
+				t.Errorf("Clone() = %q, want %q", got, tt.s)
+			}
+		})
+	}
+}
+
+func TestFieldsFunc(t *testing.T) {
+	a := arena.New(4096, arena.BUMP)
+	str := arena.NewStr(a)
+	defer a.Reset()
+
+	tests := []struct {
+		name string
+		s    string
+		f    func(rune) bool
+		want []string
+	}{
+		{"spaces", "hello world test", func(r rune) bool { return r == ' ' }, []string{"hello", "world", "test"}},
+		{"commas", "a,b,c", func(r rune) bool { return r == ',' }, []string{"a", "b", "c"}},
+		{"empty", "", func(r rune) bool { return r == ' ' }, []string{}},
+		{"no fields", "   ", func(r rune) bool { return r == ' ' }, []string{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := str.FieldsFunc(tt.s, tt.f)
+			if len(got) != len(tt.want) {
+				t.Errorf("FieldsFunc() length = %v, want %v", len(got), len(tt.want))
+				return
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("FieldsFunc()[%d] = %q, want %q", i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestContainsFunc(t *testing.T) {
+	a := arena.New(1, arena.BUMP)
+	str := arena.NewStr(a)
+	tests := []struct {
+		name string
+		s    string
+		f    func(rune) bool
+		want bool
+	}{
+		{"contains space", "hello world", func(r rune) bool { return r == ' ' }, true},
+		{"no space", "helloworld", func(r rune) bool { return r == ' ' }, false},
+		{"contains digit", "abc123", func(r rune) bool { return r >= '0' && r <= '9' }, true},
+		{"no digit", "abc", func(r rune) bool { return r >= '0' && r <= '9' }, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := str.ContainsFunc(tt.s, tt.f)
+			if got != tt.want {
+				t.Errorf("ContainsFunc() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIndexFunc(t *testing.T) {
+	a := arena.New(1, arena.BUMP)
+	str := arena.NewStr(a)
+	tests := []struct {
+		name string
+		s    string
+		f    func(rune) bool
+		want int
+	}{
+		{"first space", "hello world", func(r rune) bool { return r == ' ' }, 5},
+		{"no space", "helloworld", func(r rune) bool { return r == ' ' }, -1},
+		{"first digit", "abc123", func(r rune) bool { return r >= '0' && r <= '9' }, 3},
+		{"no digit", "abc", func(r rune) bool { return r >= '0' && r <= '9' }, -1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := str.IndexFunc(tt.s, tt.f)
+			if got != tt.want {
+				t.Errorf("IndexFunc() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestLastIndexFunc(t *testing.T) {
+	a := arena.New(1, arena.BUMP)
+	str := arena.NewStr(a)
+	tests := []struct {
+		name string
+		s    string
+		f    func(rune) bool
+		want int
+	}{
+		{"last space", "hello world test", func(r rune) bool { return r == ' ' }, 11},
+		{"no space", "helloworld", func(r rune) bool { return r == ' ' }, -1},
+		{"last digit", "abc123def456", func(r rune) bool { return r >= '0' && r <= '9' }, 11},
+		{"no digit", "abc", func(r rune) bool { return r >= '0' && r <= '9' }, -1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := str.LastIndexFunc(tt.s, tt.f)
+			if got != tt.want {
+				t.Errorf("LastIndexFunc() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestMapASCII(t *testing.T) {
+	a := arena.New(1, arena.BUMP)
+	str := arena.NewStr(a)
+	tests := []struct {
+		name    string
+		s       string
+		mapping func(byte) int
+		want    string
+	}{
+		{"to upper", "hello", func(c byte) int { return int(c - 32) }, "HELLO"},
+		{"drop spaces", "hello world", func(c byte) int {
+			if c == ' ' {
+				return -1
+			}
+			return int(c)
+		}, "helloworld"},
+		{"identity", "hello", func(c byte) int { return int(c) }, "hello"},
+		{"digits only", "a1b2c3", func(c byte) int {
+			if c >= '0' && c <= '9' {
+				return int(c)
+			}
+			return -1
+		}, "123"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := str.MapASCII(tt.mapping, tt.s)
+			if got != tt.want {
+				t.Errorf("MapASCII() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestMapUTF8(t *testing.T) {
+	a := arena.New(1, arena.BUMP)
+	str := arena.NewStr(a)
+	tests := []struct {
+		name    string
+		s       string
+		mapping func(rune) rune
+		want    string
+	}{
+		{"to upper", "hello", func(r rune) rune { return r - 32 }, "HELLO"},
+		{"drop spaces", "hello world", func(r rune) rune {
+			if r == ' ' {
+				return -1
+			}
+			return r
+		}, "helloworld"},
+		{"identity", "hello", func(r rune) rune { return r }, "hello"},
+		{"unicode", "café", func(r rune) rune {
+			if r == 'é' {
+				return 'e'
+			}
+			return r
+		}, "cafe"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := str.MapUTF8(tt.mapping, tt.s)
+			if got != tt.want {
+				t.Errorf("MapUTF8() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestMapString(t *testing.T) {
+	a := arena.New(1, arena.BUMP)
+	str := arena.NewStr(a)
+	tests := []struct {
+		name    string
+		s       string
+		mapping func(rune) rune
+		want    string
+	}{
+		{"to upper", "hello", func(r rune) rune { return r - 32 }, "HELLO"},
+		{"drop spaces", "hello world", func(r rune) rune {
+			if r == ' ' {
+				return -1
+			}
+			return r
+		}, "helloworld"},
+		{"identity", "hello", func(r rune) rune { return r }, "hello"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := str.MapString(tt.mapping, tt.s)
+			if got != tt.want {
+				t.Errorf("MapString() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestToTitle(t *testing.T) {
+	a := arena.New(4096, arena.BUMP)
+	str := arena.NewStr(a)
+	defer a.Reset()
+
+	tests := []struct {
+		name string
+		s    string
+		want string
+	}{
+		{"simple", "hello world", "HELLO WORLD"},
+		{"mixed", "hello WORLD", "HELLO WORLD"},
+		{"unicode", "héllo wörld", "HÉLLO WÖRLD"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := str.ToTitle(tt.s)
+			if got != tt.want {
+				t.Errorf("ToTitle() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestToValidUTF8(t *testing.T) {
+	a := arena.New(4096, arena.BUMP)
+	str := arena.NewStr(a)
+	defer a.Reset()
+
+	tests := []struct {
+		name        string
+		s           string
+		replacement string
+		want        string
+	}{
+		{"valid", "hello", "?", "hello"},
+		{"invalid bytes", "hello\xffworld", "?", "hello?world"},
+		{"empty replacement", "hello\xffworld", "", "helloworld"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := str.ToValidUTF8(tt.s, tt.replacement)
+			if got != tt.want {
+				t.Errorf("ToValidUTF8() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestTrimFunc(t *testing.T) {
+	a := arena.New(1, arena.BUMP)
+	str := arena.NewStr(a)
+	tests := []struct {
+		name string
+		s    string
+		f    func(rune) bool
+		want string
+	}{
+		{"trim spaces", "  hello  ", func(r rune) bool { return r == ' ' }, "hello"},
+		{"trim digits", "123hello456", func(r rune) bool { return r >= '0' && r <= '9' }, "hello"},
+		{"no trim", "hello", func(r rune) bool { return r == ' ' }, "hello"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := str.TrimFunc(tt.s, tt.f)
+			if got != tt.want {
+				t.Errorf("TrimFunc() = %q, want %q", got, tt.want)
 			}
 		})
 	}

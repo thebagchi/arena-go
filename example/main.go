@@ -21,7 +21,7 @@ func main() {
 
 	// 1. Integer slice
 	fmt.Println("\n1. Integer Slice:")
-	intSlice := arena.NewSlice[int](a)
+	intSlice := arena.NewVec[int](a)
 	intSlice.AppendSlice([]int{1, 2, 3, 4, 5})
 	intSlice.Append(6, 7, 8) // Append multiple at once
 
@@ -36,7 +36,7 @@ func main() {
 
 	// 2. String slice
 	fmt.Println("\n2. String Slice:")
-	stringSlice := arena.NewSlice[string](a, "hello", "world")
+	stringSlice := arena.NewVec[string](a, "hello", "world")
 	stringSlice.AppendSlice([]string{"arena", "memory"})
 	stringSlice.Push("allocation") // Using Push alias
 
@@ -56,7 +56,7 @@ func main() {
 	person3 := arena.Ptr(a, Person{Name: "Charlie", Age: 35})
 
 	// Create a slice of pointers to Person
-	pointerSlice := arena.NewSlice[*Person](a)
+	pointerSlice := arena.NewVec[*Person](a)
 	pointerSlice.Append(person1, person2, person3)
 
 	fmt.Printf("Number of people: %d\n", pointerSlice.Len())
