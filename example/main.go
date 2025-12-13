@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/thebagchi/arena-go"
@@ -10,6 +11,27 @@ import (
 type Person struct {
 	Name string
 	Age  int
+}
+
+func serializePersonToJSON(a *arena.Arena, name string, age int) string {
+	// Create name in arena
+	arenaName := a.MakeString(name)
+
+	// Create Person in arena
+	person := arena.Ptr(a, Person{Name: arenaName, Age: age})
+
+	// Create Writer in arena
+	writer := arena.NewWriter(a)
+
+	// Serialize to JSON
+	encoder := json.NewEncoder(writer)
+	err := encoder.Encode(person)
+	if err != nil {
+		panic(err)
+	}
+
+	// Return the JSON as string
+	return string(writer.Bytes())
 }
 
 func main() {
@@ -160,4 +182,22 @@ func main() {
 
 	// Arena is automatically cleaned up when main exits (defer a.Delete())
 	fmt.Println("\n=== Example completed successfully! ===")
+
+	// Demonstrate JSON serialization
+	fmt.Println("\n=== JSON Serialization Example ===")
+	jsonStr := serializePersonToJSON(a, "John Doe", 28)
+	fmt.Printf("Serialized JSON: %s", jsonStr)
+
+	// Demonstrate Reader
+	fmt.Println("\n=== Reader Example ===")
+	data := []byte("arena-based reading")
+	reader := arena.NewReader(a, data)
+	readBuf := make([]byte, 10)
+	n, err := reader.Read(readBuf)
+	if err != nil {
+		fmt.Printf("Read error: %v\n", err)
+	} else {
+		fmt.Printf("Read %d bytes: %s\n", n, string(readBuf[:n]))
+	}
+	fmt.Printf("Remaining bytes: %d\n", reader.Len())
 }
