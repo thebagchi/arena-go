@@ -33,6 +33,43 @@ const (
 // SlabAllocator serves fixed-size classes from slabs of objects and supports
 // individual free.
 //
+//	SlabAllocator
+//	+---------------------------------------------------------------+
+//	| bins[0..CLASS_COUNT-1]   one per size class, 16 B .. 32 KiB   |
+//	|    bins[c].size          the object size of class c           |
+//	|    bins[c].partial ----> [ slab, slab, ... ]  slabs with room |
+//	| slabs                    every live slab, in address order,   |
+//	|                          which is what a free binary searches |
+//	| free[size]               pages handed back, ready to carve    |
+//	+---------------------------------------------------------------+
+//
+// A request larger than the biggest class gets a mapping of its own, recorded
+// as a slab of one slot, so freeing finds it the same way as anything else.
+//
+// One slab is one mapping carved into equal slots:
+//
+//	_Slab                    page (one mapping)
+//	+------------------+     +--------+--------+--------+--------+-- ... --+
+//	| page ------------+---->| slot 0 | slot 1 | slot 2 | slot 3 |         |
+//	| size     = 64    |     +--------+--------+--------+--------+-- ... --+
+//	| next     = 3     |        live     free     live   ^ never handed out
+//	| used     = 2     |                  |              next
+//	| freed -----------+------------------+
+//	| bitmap           |     bit i is set while slot i is live: 0 and 2 here
+//	| capacity, class  |
+//	| listed, zeroed   |
+//	+------------------+
+//
+// Slots come from two places, which is what keeps the common path free of work.
+// Below next the slab is still walking up memory nothing has touched; on a
+// freshly mapped page that is already zero, so handing it over costs nothing.
+// Anything freed goes on the list headed by freed, threaded through the free
+// slots themselves, and a slot taken from there is zeroed on the way out.
+//
+// bitmap carries one bit per slot, set while the slot is handed out. It is what
+// makes a double free and an interior pointer detectable, which a free list on
+// its own cannot do.
+//
 // One mutex guards everything. The previous design had a second mutex per bin
 // and took the two in one order when allocating and the other when freeing,
 // which deadlocked, and it mutated the shared page pool while holding only the
