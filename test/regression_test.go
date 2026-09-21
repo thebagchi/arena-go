@@ -1,8 +1,8 @@
-// Regression tests for the defects recorded in review.md.
+// Regression tests for the defects found reviewing this package.
 //
 // Each one failed before the fix it guards. They were written as reproductions
-// first, behind a build tag, and moved here as each defect was closed; the
-// review.md section number is named so the finding and its guard stay connected.
+// first, behind a build tag, and moved here as each defect was closed. Each names
+// the defect it covers, so a test that starts failing says what has come back.
 package arena_test
 
 import (
@@ -33,7 +33,7 @@ const (
 	MIN_BLOCK_BYTES = 16
 )
 
-// TestSlabConcurrentAllocFree covers review.md 1.1: allocation took the bin lock
+// TestSlabConcurrentAllocFree covers a lock-order inversion: allocation took the bin lock
 // then the allocator lock, and freeing took them the other way round, so the two
 // deadlocked as soon as they ran together.
 //
@@ -83,7 +83,7 @@ func TestSlabConcurrentAllocFree(t *testing.T) {
 	}
 }
 
-// TestSlabConcurrentClassesRace covers review.md 1.2: freeing appended to the
+// TestSlabConcurrentClassesRace covers a data race: freeing appended to the
 // shared page pool while holding only a bin lock, which raced with allocation
 // reading that pool under the allocator lock. Run under -race to see it.
 //
@@ -118,7 +118,7 @@ func TestSlabConcurrentClassesRace(t *testing.T) {
 	wg.Wait()
 }
 
-// TestSlabRejectsDoubleFree covers review.md 1.3: a second free of the same
+// TestSlabRejectsDoubleFree covers a double free: a second free of the same
 // pointer linked a slot to itself, so the next two allocations returned the same
 // address.
 //
@@ -144,7 +144,7 @@ func TestSlabRejectsDoubleFree(t *testing.T) {
 	}
 }
 
-// TestSlabRejectsInteriorPointer covers review.md 1.9: a pointer into the middle
+// TestSlabRejectsInteriorPointer covers an interior pointer: a pointer into the middle
 // of an object was accepted and threaded the free list through live data.
 //
 // Revisions:
@@ -164,7 +164,7 @@ func TestSlabRejectsInteriorPointer(t *testing.T) {
 	}
 }
 
-// TestAllocAfterDeletePanics covers review.md 1.4: one allocator panicked with
+// TestAllocAfterDeletePanics covers use after delete: one allocator panicked with
 // an index out of range, another with a nil dereference, and the third with a
 // message of its own. All three now report the same thing.
 //
@@ -204,7 +204,7 @@ func TestAllocAfterDeletePanics(t *testing.T) {
 	}
 }
 
-// TestBuddyFixedExhaustion covers review.md 1.5: a full fixed-size allocator
+// TestBuddyFixedExhaustion covers exhaustion: a full fixed-size allocator
 // returned nil, and every generic helper dereferenced it. Under -race the crash
 // was a fatal error that no recover could catch.
 //
@@ -233,7 +233,7 @@ func TestBuddyFixedExhaustion(t *testing.T) {
 	_ = arena.MakeSlice[byte](a, oversized, oversized)
 }
 
-// TestSlabResetReusesPages covers review.md 1.7: Reset left every slab page
+// TestSlabResetReusesPages covers a mapping leak: Reset left every slab page
 // mapped and unreferenced, so each cycle mapped a fresh set.
 //
 // Revisions:
@@ -260,7 +260,7 @@ func TestSlabResetReusesPages(t *testing.T) {
 	}
 }
 
-// TestAllocIsZeroed covers review.md 2.1: no allocator zeroed anything, so a
+// TestAllocIsZeroed covers unzeroed memory: no allocator zeroed anything, so a
 // slab handed back its own free-list pointer in the first word of every fresh
 // object, and bump and buddy handed back the previous occupant's data.
 //
@@ -315,7 +315,7 @@ func TestAllocIsZeroed(t *testing.T) {
 	}
 }
 
-// TestPoolAllocIsZeroed covers review.md 2.1 for the pool, whose objects never
+// TestPoolAllocIsZeroed covers unzeroed memory for the pool, whose objects never
 // go back to the allocator and so are zeroed by the pool itself.
 //
 // Revisions:
@@ -339,7 +339,7 @@ func TestPoolAllocIsZeroed(t *testing.T) {
 	}
 }
 
-// TestBuddyHonoursAlign covers review.md 2.2: the buddy allocator worked out the
+// TestBuddyHonoursAlign covers a broken alignment: the buddy allocator worked out the
 // block size the alignment needed and then asked for a block sized only by the
 // request, so Alloc(8, 64) came back 16-byte aligned.
 //
@@ -367,7 +367,7 @@ func TestBuddyHonoursAlign(t *testing.T) {
 	}
 }
 
-// TestMapStructKeyWithStringField covers review.md 2.3: keys were hashed from
+// TestMapStructKeyWithStringField covers a wrong hash: keys were hashed from
 // their raw memory, so two equal keys whose string fields sat at different
 // addresses hashed differently and the second one was never found.
 //
@@ -398,7 +398,7 @@ func TestMapStructKeyWithStringField(t *testing.T) {
 	}
 }
 
-// TestArenaMemoryIsNotGCRoot covers review.md 6.0: arena memory is not scanned
+// TestArenaMemoryIsNotGCRoot covers the collector hazard: arena memory is not scanned
 // by the garbage collector, so heap strings kept only by a map entry were
 // collected and their bytes reused. Map now copies string keys into the arena.
 //
@@ -434,7 +434,7 @@ func TestArenaMemoryIsNotGCRoot(t *testing.T) {
 	}
 }
 
-// TestBuddySequentialAllocScales covers review.md 3.0: the one-bit-per-node
+// TestBuddySequentialAllocScales covers a scaling defect: the one-bit-per-node
 // bitmap could not tell a full subtree from a partly used one, so the search
 // re-walked every live block and allocation cost grew with the live set.
 //
@@ -478,7 +478,7 @@ func TestBuddySequentialAllocScales(t *testing.T) {
 	}
 }
 
-// TestSlabLargeObjectsSharePages covers review.md 3.2: slabs were sized to one
+// TestSlabLargeObjectsSharePages covers one mmap per object: slabs were sized to one
 // page, so every object at or above the page size cost its own mmap call.
 //
 // Revisions:
@@ -507,7 +507,7 @@ func TestSlabLargeObjectsSharePages(t *testing.T) {
 	}
 }
 
-// TestWriterStaysArenaBacked covers review.md 3.5: the writer grew with make, so
+// TestWriterStaysArenaBacked covers a silent fall back to the heap: the writer grew with make,
 // once it outgrew its first block it was on the Go heap and had quietly stopped
 // being arena-backed.
 //
@@ -530,7 +530,7 @@ func TestWriterStaysArenaBacked(t *testing.T) {
 	}
 }
 
-// TestMakeStringCopiesLargeInput covers review.md 1.8: the copy went through a fixed-size
+// TestMakeStringCopiesLargeInput covers a size limit: the copy went through a fixed-size
 // array type, which panicked for anything at or above one gibibyte. This uses a
 // far smaller string, because the bug was the cast rather than the size.
 //

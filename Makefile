@@ -5,7 +5,7 @@
 #   make lint          golangci-lint (bundles staticcheck, errcheck, ineffassign, unused)
 #   make staticcheck   standalone staticcheck, if its Go version matches the module
 #   make race          full test suite under the race detector (about 30 seconds)
-#   make regression    just the tests guarding the defects review.md records
+#   make regression    just the tests guarding the defects found in review
 #   make bench         all benchmarks with memory stats
 #   make vuln          govulncheck against the module
 #
@@ -96,7 +96,7 @@ short:
 race:
 	$(GO) test $(TEST_FLAGS) -race -timeout $(RACE_TIMEOUT) $(PKGS)
 
-## regression: the tests guarding the defects recorded in review.md
+## regression: the tests guarding the defects found in review
 regression:
 	$(GO) test $(TEST_FLAGS) -race -timeout 5m -run 'Test(Slab|Buddy|Bump|Alloc|Pool|Map|Arena|Writer|MakeString)' ./test/
 

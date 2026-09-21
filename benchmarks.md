@@ -1,7 +1,7 @@
 # Allocator benchmarks
 
-The numbers. `perf.md` explains them: where the time goes, why each allocator is as fast
-as it is, and what is still on the table.
+The numbers: where the time goes, why each allocator is as fast as it is, and what is
+still on the table.
 
 Measured on 2026-09-21, Go 1.26.2, linux/amd64, 12th Gen Intel Core i7-12800H,
 five runs of each benchmark. Reproduce with:
@@ -12,8 +12,9 @@ go test -run '^$' -bench 'BenchmarkBump_' -benchmem -count 5 ./test/
 
 Every figure here comes from a fresh run of the command above. A single run of a
 benchmark proves nothing; the comparison against the previous implementation
-further down was taken with `benchstat` over six runs of each side, through
-`.claude/skills/bench-compare/scripts/bench_compare.sh`.
+further down was taken with `benchstat` over six runs of each side, then repeated with
+the two sides swapped, because an unswapped comparison reports thermal drift as a
+regression in whichever side ran second.
 
 ## Bump allocator
 
@@ -76,9 +77,6 @@ Where the time went:
 - **Bump** took two mutexes per allocation, one in the allocator and one in the
   cursor underneath it, to protect a single offset. It takes one.
 
-`perf.md` has the full account of each, and `review.md` the correctness work that came
-with them.
-
 ## What the numbers do not say
 
 These are single-goroutine benchmarks of one operation in a loop. They do not
@@ -103,5 +101,9 @@ make bench
 make bench BENCH=BenchmarkSlab_
 
 # compare the working tree against a commit
-.claude/skills/bench-compare/scripts/bench_compare.sh 'BenchmarkBump_' HEAD
+git worktree add --detach /tmp/base HEAD
+(cd /tmp/base && go test -run '^$' -bench 'BenchmarkBump_' -benchmem -count 6 ./test/) >old.txt
+go test -run '^$' -bench 'BenchmarkBump_' -benchmem -count 6 ./test/ >new.txt
+go tool benchstat old.txt new.txt
+git worktree remove /tmp/base
 ```

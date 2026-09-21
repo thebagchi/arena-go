@@ -1,20 +1,19 @@
-# Enforces the mechanically checkable half of CLAUDE.md.
+# Enforces the mechanically checkable half of this project's coding conventions.
 #
 # Every linter here stands in for a rule that was previously enforced by remembering it.
 # The rules no off-the-shelf linter can express — the revision history on every
 # function, the leading underscore on unexported names, CAPITAL_SNAKE constants and
-# contiguous struct fields — have no checker in this repository yet; go.md, What nothing
-# checks, lists them.
+# contiguous struct fields — have no checker in this repository yet, and are held to on
+# review.
 #
-# go.md, What the toolchain checks, states the rule that decides the split: a published
-# checker is preferred to one of our own. Each linter below was adopted on that basis in
+# The rule that decides the split: a published checker is always preferred to one of our
+# own. Each linter below was adopted on that basis in
 # the repository this configuration came from, proved against a fixture before it was
 # trusted — enabled alone, watched to report, watched to go quiet. This configuration was
 # written for golangci-lint 2.13.2; a different version may read a setting differently.
 #
 # Adopted here on 2026-09-21. New and edited code is held to it; existing code is not
-# swept, so a run over the whole tree reports findings that predate the rules. review.md
-# records them.
+# swept, so a run over the whole tree can report findings that predate the rules.
 version: "2"
 
 linters:
@@ -42,7 +41,7 @@ linters:
     # Dead code is deleted, not left "just in case".
     - unused
 
-    # Each line names the CLAUDE.md or go.md rule it stands in for, and each was watched
+    # Each line names the convention it stands in for, and each was watched
     # to fail against a fixture before it was trusted.
 
     # context.Context is never stored in a struct.
@@ -90,22 +89,22 @@ linters:
         - stdlib
         - generic
     grouper:
-      # CLAUDE.md, Naming: constants and package-level vars are grouped in one block.
+      # Naming: constants and package-level vars are grouped in one block.
       const-require-grouping: true
       var-require-grouping: true
     revive:
       rules:
-        # CLAUDE.md, Function design: no boolean flag parameters.
+        # Function design: no boolean flag parameters.
         - name: flag-parameter
-        # CLAUDE.md, Function design: ~3-4 parameters, then a struct.
+        # Function design: ~3-4 parameters, then a struct.
         - name: argument-limit
           arguments: [4]
-        # go.md, Signatures: context.Context is the first parameter.
+        # Signatures: context.Context is the first parameter.
         - name: context-as-argument
-        # go.md, Signatures: error is the last result. Adopted 2026-09-19 by the sweep of
+        # Signatures: error is the last result. Adopted 2026-09-19 by the sweep of
         # the rules that had no published checker; it was the one real find in 22.
         - name: error-return
-        # CLAUDE.md, Comments: every function has a doc comment. This reaches every
+        # Comments: every function has a doc comment. This reaches every
         # exported declaration, not only functions, which costs one comment per const
         # or var block rather than one per constant - measured, and compatible with the
         # grouping rule above, which already requires one block.
@@ -116,15 +115,15 @@ linters:
     gocognit:
       min-complexity: 20
     govet:
-      # `shadow` is off, and this is the cost of a rule go.md argues for by name.
+      # `shadow` is off, and this is the cost of a form this project argues for by name.
       #
-      # go.md calls `if err := f(); err != nil` the preferred form and "what Go's own
-      # documentation reaches for". CLAUDE.md separately says "No shadowing". Every one
+      # `if err := f(); err != nil` is the preferred form here, and what Go's own
+      # documentation reaches for. "No shadowing" is a separate rule. Every one
       # of the seven sites this reported in the source repository was that exact form, with the
       # outer err already dead — so the analyser makes the preferred form unusable in
       # any function that already has an err, which is nearly all of them.
       #
-      # CLAUDE.md's rule stands as a review rule, about an outer value that is still
+      # The no-shadowing rule stands as a review rule, about an outer value that is still
       # live. Nobody should switch this on expecting a clean run.
       enable: []
     lll:
@@ -140,14 +139,14 @@ linters:
     staticcheck:
       # golangci-lint's default turns off every ST check that this project happens to
       # disagree with, and two it agrees with. ST1000 (a package comment somewhere) and
-      # ST1020 (a doc comment opening with the identifier) are rules go.md states and
+      # ST1020 (a doc comment opening with the identifier) are rules this project states and
       # nothing was checking, so they are switched back on.
       #
       # ST1003 stays off: it reports ALL_CAPS names, which is every constant here.
       # ST1021 and ST1022 duplicate ST1020 for types and variables in a wording that
       # fights the revision-history block.
       #
-      # ST1016 is ON. It was previously disabled on the grounds that go.md already
+      # ST1016 is ON. It was previously disabled on the grounds that the conventions already
       # required one receiver name per type — but no tool enforced that, so the rule
       # was believed-covered and unchecked, which is the worst state a rule can be in.
       checks: ["all", "-ST1003", "-ST1021", "-ST1022"]
@@ -160,7 +159,7 @@ linters:
     # strict rather than lax, deliberately. lax also treats a file as generated on looser
     # hints, which means a hand-written file can slip out of the gate by mentioning the
     # wrong phrase in a header comment - a check that stopped looking, reported as a clean
-    # run. strict wants the canonical marker Go itself looks for, and CLAUDE.md already
+    # run. strict wants the canonical marker Go itself looks for, and this project already
     # requires that marker on the first line of every generated file, so a generated file
     # in this repository always satisfies it and a hand-written one never does by accident.
     #
@@ -203,14 +202,14 @@ formatters:
 # Declined, with the reason, so nobody re-enables one expecting a clean run. Each was
 # proved against a fixture rather than judged from its description.
 #
-#   noinlineerr - forbids `if err := f(); err != nil`, which go.md's Control flow section
-#                 calls the preferred form. Not wrong, but the opposite of a stated rule.
-#   varnamelen  - could not be made to report CLAUDE.md's one-word locals, at defaults or
-#                 at min-name-length 4. A linter that stays quiet on the case it was
+#   noinlineerr - forbids `if err := f(); err != nil`, which this project's control-flow
+#                 rules call the preferred form. Not wrong, but the opposite of a stated rule.
+#   varnamelen  - could not be made to report this project's one-word locals, at defaults
+#                 or at min-name-length 4. A linter that stays quiet on the case it was
 #                 adopted for cannot be trusted to report the next one.
 #   revive
 #   var-naming  - expresses "exported names are PascalCase", but
-#                 also rejects CAPITAL_SNAKE package-level variables, which CLAUDE.md
+#                 also rejects CAPITAL_SNAKE package-level variables, which this project
 #                 requires. Measured: silent on CAPITAL_SNAKE constants, reports
 #                 CAPITAL_SNAKE vars. Adopting it would report every package-level var in
 #                 the project forever. Same family as staticcheck's ST1003, and narrower
