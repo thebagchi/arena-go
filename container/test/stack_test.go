@@ -8,6 +8,10 @@ import (
 	"github.com/thebagchi/arena-go/container"
 )
 
+// TestStack_Basic covers stack basic.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestStack_Basic(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(10 * 4096))
 	defer a.Delete()
@@ -18,15 +22,18 @@ func TestStack_Basic(t *testing.T) {
 	if !s.IsEmpty() {
 		t.Error("Expected empty stack")
 	}
+
 	if s.Len() != 0 {
 		t.Errorf("Expected length 0, got %d", s.Len())
 	}
 
 	// Test push
 	s.Push(42)
+
 	if s.IsEmpty() {
 		t.Error("Expected non-empty stack")
 	}
+
 	if s.Len() != 1 {
 		t.Errorf("Expected length 1, got %d", s.Len())
 	}
@@ -36,9 +43,11 @@ func TestStack_Basic(t *testing.T) {
 	if !ok {
 		t.Error("Expected peek to succeed")
 	}
+
 	if val != 42 {
 		t.Errorf("Expected peeked value 42, got %d", val)
 	}
+
 	if s.Len() != 1 {
 		t.Errorf("Expected length still 1 after peek, got %d", s.Len())
 	}
@@ -48,12 +57,15 @@ func TestStack_Basic(t *testing.T) {
 	if !ok {
 		t.Error("Expected pop to succeed")
 	}
+
 	if val != 42 {
 		t.Errorf("Expected popped value 42, got %d", val)
 	}
+
 	if s.Len() != 0 {
 		t.Errorf("Expected length 0 after pop, got %d", s.Len())
 	}
+
 	if !s.IsEmpty() {
 		t.Error("Expected empty stack after pop")
 	}
@@ -63,11 +75,16 @@ func TestStack_Basic(t *testing.T) {
 	if ok {
 		t.Error("Expected pop from empty stack to fail")
 	}
+
 	if val != 0 {
 		t.Errorf("Expected zero value, got %d", val)
 	}
 }
 
+// TestStack_LIFO covers stack lifo.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestStack_LIFO(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(10 * 4096))
 	defer a.Delete()
@@ -90,6 +107,7 @@ func TestStack_LIFO(t *testing.T) {
 		if !ok {
 			t.Errorf("Expected pop at index %d to succeed", i)
 		}
+
 		if val != expected {
 			t.Errorf("Expected popped value %d, got %d", expected, val)
 		}
@@ -100,6 +118,10 @@ func TestStack_LIFO(t *testing.T) {
 	}
 }
 
+// TestStack_Peek_Empty covers stack peek empty.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestStack_Peek_Empty(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(10 * 4096))
 	defer a.Delete()
@@ -111,11 +133,16 @@ func TestStack_Peek_Empty(t *testing.T) {
 	if ok {
 		t.Error("Expected peek on empty stack to fail")
 	}
+
 	if val != 0 {
 		t.Errorf("Expected zero value, got %d", val)
 	}
 }
 
+// TestStack_Clear covers stack clear.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestStack_Clear(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(10 * 4096))
 	defer a.Delete()
@@ -137,11 +164,16 @@ func TestStack_Clear(t *testing.T) {
 	if s.Len() != 0 {
 		t.Errorf("Expected length 0 after clear, got %d", s.Len())
 	}
+
 	if !s.IsEmpty() {
 		t.Error("Expected empty stack after clear")
 	}
 }
 
+// TestStack_MultipleTypes covers stack multiple types.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestStack_MultipleTypes(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(10 * 4096))
 	defer a.Delete()
@@ -177,6 +209,10 @@ func TestStack_MultipleTypes(t *testing.T) {
 	}
 }
 
+// TestStack_LargeScale covers stack large scale.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestStack_LargeScale(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(100 * 4096))
 	defer a.Delete()
@@ -198,6 +234,7 @@ func TestStack_LargeScale(t *testing.T) {
 		if !ok {
 			t.Errorf("Expected pop at index %d to succeed", i)
 		}
+
 		if val != i {
 			t.Errorf("Expected value %d, got %d", i, val)
 		}
@@ -208,6 +245,10 @@ func TestStack_LargeScale(t *testing.T) {
 	}
 }
 
+// TestStack_Cap covers stack cap.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestStack_Cap(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(10 * 4096))
 	defer a.Delete()
@@ -229,6 +270,10 @@ func TestStack_Cap(t *testing.T) {
 	}
 }
 
+// TestStack_PushAndPeek covers stack push and peek.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestStack_PushAndPeek(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(10 * 4096))
 	defer a.Delete()
@@ -237,10 +282,12 @@ func TestStack_PushAndPeek(t *testing.T) {
 
 	for i := 1; i <= 10; i++ {
 		s.Push(i)
+
 		val, ok := s.Peek()
 		if !ok {
 			t.Errorf("Expected peek at iteration %d to succeed", i)
 		}
+
 		if val != i {
 			t.Errorf("Expected peeked value %d, got %d", i, val)
 		}
@@ -251,6 +298,10 @@ func TestStack_PushAndPeek(t *testing.T) {
 	}
 }
 
+// TestStack_AlternatingOps covers stack alternating ops.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestStack_AlternatingOps(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(10 * 4096))
 	defer a.Delete()
@@ -260,21 +311,29 @@ func TestStack_AlternatingOps(t *testing.T) {
 	// Alternate between push and pop
 	s.Push(1)
 	s.Push(2)
+
 	val, _ := s.Pop()
 	if val != 2 {
 		t.Errorf("Expected 2, got %d", val)
 	}
+
 	s.Push(3)
+
 	val, _ = s.Pop()
 	if val != 3 {
 		t.Errorf("Expected 3, got %d", val)
 	}
+
 	val, _ = s.Pop()
 	if val != 1 {
 		t.Errorf("Expected 1, got %d", val)
 	}
 }
 
+// TestStack_PeekSequence covers stack peek sequence.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestStack_PeekSequence(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(10 * 4096))
 	defer a.Delete()
@@ -300,6 +359,10 @@ func TestStack_PeekSequence(t *testing.T) {
 	}
 }
 
+// TestStack_SingleElement covers stack single element.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestStack_SingleElement(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(10 * 4096))
 	defer a.Delete()
@@ -307,6 +370,7 @@ func TestStack_SingleElement(t *testing.T) {
 	s := container.NewStack[int](a)
 
 	s.Push(99)
+
 	if s.Len() != 1 {
 		t.Errorf("Expected length 1, got %d", s.Len())
 	}
@@ -326,11 +390,16 @@ func TestStack_SingleElement(t *testing.T) {
 	}
 }
 
+// TestStack_StressTest covers stack stress test.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestStack_StressTest(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(100 * 4096))
 	defer a.Delete()
 
 	s := container.NewStack[int](a)
+
 	const n = 5000
 
 	// Push n elements
@@ -348,6 +417,7 @@ func TestStack_StressTest(t *testing.T) {
 		if !ok {
 			t.Errorf("Pop failed at iteration %d", i)
 		}
+
 		if val != i {
 			t.Errorf("Expected %d, got %d", i, val)
 		}
@@ -358,6 +428,10 @@ func TestStack_StressTest(t *testing.T) {
 	}
 }
 
+// TestStack_InterleavedPushPop covers stack interleaved push pop.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestStack_InterleavedPushPop(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(10 * 4096))
 	defer a.Delete()
@@ -367,6 +441,7 @@ func TestStack_InterleavedPushPop(t *testing.T) {
 	// Push-pop-push-pop pattern
 	for i := 0; i < 10; i++ {
 		s.Push(i)
+
 		val, ok := s.Pop()
 		if !ok || val != i {
 			t.Errorf("Iteration %d: Expected %d, got %d", i, i, val)
@@ -378,6 +453,10 @@ func TestStack_InterleavedPushPop(t *testing.T) {
 	}
 }
 
+// TestStack_PushPopSequence covers stack push pop sequence.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestStack_PushPopSequence(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(10 * 4096))
 	defer a.Delete()
@@ -394,6 +473,7 @@ func TestStack_PushPopSequence(t *testing.T) {
 	if val != 5 {
 		t.Errorf("Expected 5, got %d", val)
 	}
+
 	val, _ = s.Pop()
 	if val != 4 {
 		t.Errorf("Expected 4, got %d", val)
@@ -414,6 +494,10 @@ func TestStack_PushPopSequence(t *testing.T) {
 	}
 }
 
+// TestStack_StructElements covers stack struct elements.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestStack_StructElements(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(10 * 4096))
 	defer a.Delete()

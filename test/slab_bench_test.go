@@ -1,4 +1,4 @@
-package test
+package arena_test
 
 import (
 	"testing"
@@ -9,22 +9,30 @@ import (
 )
 
 // Benchmark basic allocation performance
+//
+// Revisions:
+//   - 2025-12-19 13:53: initial creation
 func BenchmarkSlab_Alloc(b *testing.B) {
 	a := arena.New(alloc.NewSlabAllocator())
 	defer a.Delete()
 
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i = i + 1 {
 		_ = arena.Alloc[int](a)
 	}
 }
 
 // Benchmark allocation with reset
+//
+// Revisions:
+//   - 2025-12-19 13:53: initial creation
 func BenchmarkSlab_AllocWithReset(b *testing.B) {
 	a := arena.New(alloc.NewSlabAllocator())
 	defer a.Delete()
 
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i = i + 1 {
 		_ = arena.Alloc[int](a)
 		if i%1000 == 0 {
@@ -34,11 +42,15 @@ func BenchmarkSlab_AllocWithReset(b *testing.B) {
 }
 
 // Benchmark allocation and deallocation
+//
+// Revisions:
+//   - 2025-12-19 13:53: initial creation
 func BenchmarkSlab_AllocFree(b *testing.B) {
 	a := arena.New(alloc.NewSlabAllocator())
 	defer a.Delete()
 
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i = i + 1 {
 		p := arena.Alloc[int](a)
 		arena.DeleteObject(a, p)
@@ -46,11 +58,15 @@ func BenchmarkSlab_AllocFree(b *testing.B) {
 }
 
 // Benchmark small object allocations
+//
+// Revisions:
+//   - 2025-12-19 13:53: initial creation
 func BenchmarkSlab_AllocSmall(b *testing.B) {
 	a := arena.New(alloc.NewSlabAllocator())
 	defer a.Delete()
 
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i = i + 1 {
 		p := arena.Alloc[byte](a)
 		_ = p
@@ -58,6 +74,9 @@ func BenchmarkSlab_AllocSmall(b *testing.B) {
 }
 
 // Benchmark medium object allocations
+//
+// Revisions:
+//   - 2025-12-19 13:53: initial creation
 func BenchmarkSlab_AllocMedium(b *testing.B) {
 	a := arena.New(alloc.NewSlabAllocator())
 	defer a.Delete()
@@ -67,12 +86,16 @@ func BenchmarkSlab_AllocMedium(b *testing.B) {
 	}
 
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i = i + 1 {
 		_ = arena.Alloc[MediumStruct](a)
 	}
 }
 
 // Benchmark large object allocations
+//
+// Revisions:
+//   - 2025-12-19 13:53: initial creation
 func BenchmarkSlab_AllocLarge(b *testing.B) {
 	a := arena.New(alloc.NewSlabAllocator())
 	defer a.Delete()
@@ -82,12 +105,16 @@ func BenchmarkSlab_AllocLarge(b *testing.B) {
 	}
 
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i = i + 1 {
 		_ = arena.Alloc[LargeStruct](a)
 	}
 }
 
 // Benchmark xlarge object allocations
+//
+// Revisions:
+//   - 2025-12-19 13:53: initial creation
 func BenchmarkSlab_AllocXLarge(b *testing.B) {
 	a := arena.New(alloc.NewSlabAllocator())
 	defer a.Delete()
@@ -97,17 +124,22 @@ func BenchmarkSlab_AllocXLarge(b *testing.B) {
 	}
 
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i = i + 1 {
 		_ = arena.Alloc[XLargeStruct](a)
 	}
 }
 
 // Benchmark mixed size allocations
+//
+// Revisions:
+//   - 2025-12-19 13:53: initial creation
 func BenchmarkSlab_AllocMixed(b *testing.B) {
 	a := arena.New(alloc.NewSlabAllocator())
 	defer a.Delete()
 
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i = i + 1 {
 		switch i % 4 {
 		case 0:
@@ -123,11 +155,15 @@ func BenchmarkSlab_AllocMixed(b *testing.B) {
 }
 
 // Benchmark many small allocations
+//
+// Revisions:
+//   - 2025-12-19 13:53: initial creation
 func BenchmarkSlab_AllocMany(b *testing.B) {
 	a := arena.New(alloc.NewSlabAllocator())
 	defer a.Delete()
 
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i = i + 1 {
 		for j := 0; j < 100; j++ {
 			_ = arena.Alloc[int](a)
@@ -136,6 +172,9 @@ func BenchmarkSlab_AllocMany(b *testing.B) {
 }
 
 // Benchmark alloc/free pattern
+//
+// Revisions:
+//   - 2025-12-19 13:53: initial creation
 func BenchmarkSlab_AllocFreePattern(b *testing.B) {
 	a := arena.New(alloc.NewSlabAllocator())
 	defer a.Delete()
@@ -143,6 +182,7 @@ func BenchmarkSlab_AllocFreePattern(b *testing.B) {
 	ptrs := make([]*int, 100)
 
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i = i + 1 {
 		// Allocate 100 objects
 		for j := 0; j < 100; j++ {
@@ -160,6 +200,9 @@ func BenchmarkSlab_AllocFreePattern(b *testing.B) {
 }
 
 // Benchmark sequential large allocations
+//
+// Revisions:
+//   - 2025-12-19 13:53: initial creation
 func BenchmarkSlab_SequentialLarge(b *testing.B) {
 	a := arena.New(alloc.NewSlabAllocator())
 	defer a.Delete()
@@ -169,6 +212,7 @@ func BenchmarkSlab_SequentialLarge(b *testing.B) {
 	}
 
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i = i + 1 {
 		for j := 0; j < 10; j++ {
 			_ = arena.Alloc[LargeType](a)
@@ -177,6 +221,9 @@ func BenchmarkSlab_SequentialLarge(b *testing.B) {
 }
 
 // Benchmark reset overhead
+//
+// Revisions:
+//   - 2025-12-19 13:53: initial creation
 func BenchmarkSlab_Reset(b *testing.B) {
 	a := arena.New(alloc.NewSlabAllocator())
 	defer a.Delete()
@@ -187,6 +234,7 @@ func BenchmarkSlab_Reset(b *testing.B) {
 	}
 
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i = i + 1 {
 		a.Reset()
 		// Re-allocate to keep state consistent
@@ -197,6 +245,9 @@ func BenchmarkSlab_Reset(b *testing.B) {
 }
 
 // Benchmark owns check
+//
+// Revisions:
+//   - 2025-12-19 13:53: initial creation
 func BenchmarkSlab_Owns(b *testing.B) {
 	a := arena.New(alloc.NewSlabAllocator())
 	defer a.Delete()
@@ -204,12 +255,16 @@ func BenchmarkSlab_Owns(b *testing.B) {
 	p := arena.Alloc[int](a)
 
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i = i + 1 {
 		_ = a.Owns(unsafe.Pointer(p))
 	}
 }
 
 // Benchmark struct allocation
+//
+// Revisions:
+//   - 2025-12-19 13:53: initial creation
 func BenchmarkSlab_AllocStruct(b *testing.B) {
 	a := arena.New(alloc.NewSlabAllocator())
 	defer a.Delete()
@@ -222,6 +277,7 @@ func BenchmarkSlab_AllocStruct(b *testing.B) {
 	}
 
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i = i + 1 {
 		p := arena.Alloc[TestStruct](a)
 		_ = p
@@ -229,22 +285,30 @@ func BenchmarkSlab_AllocStruct(b *testing.B) {
 }
 
 // Benchmark array allocation
+//
+// Revisions:
+//   - 2025-12-19 13:53: initial creation
 func BenchmarkSlab_AllocArray(b *testing.B) {
 	a := arena.New(alloc.NewSlabAllocator())
 	defer a.Delete()
 
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i = i + 1 {
 		_ = arena.Alloc[[100]int](a)
 	}
 }
 
 // Benchmark mixed type allocations
+//
+// Revisions:
+//   - 2025-12-19 13:53: initial creation
 func BenchmarkSlab_MixedTypes(b *testing.B) {
 	a := arena.New(alloc.NewSlabAllocator())
 	defer a.Delete()
 
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i = i + 1 {
 		_ = arena.Alloc[int](a)
 		_ = arena.Alloc[string](a)

@@ -9,6 +9,10 @@ import (
 	"github.com/thebagchi/arena-go/res"
 )
 
+// TestString_ToBytes covers string to bytes.
+//
+// Revisions:
+//   - 2025-12-12 20:07: initial creation
 func TestString_ToBytes(t *testing.T) {
 	tests := []struct {
 		name string
@@ -27,15 +31,25 @@ func TestString_ToBytes(t *testing.T) {
 				t.Errorf("ToBytes() length = %v, want %v", len(got), len(tt.want))
 				return
 			}
+
 			for i := range got {
 				if got[i] != tt.want[i] {
-					t.Errorf("ToBytes()[%d] = %v, want %v", i, got[i], tt.want[i])
+					t.Errorf(
+						"ToBytes()[%d] = %v, want %v",
+						i,
+						got[i],
+						tt.want[i],
+					)
 				}
 			}
 		})
 	}
 }
 
+// TestString_ToString covers string to string.
+//
+// Revisions:
+//   - 2025-12-12 20:07: initial creation
 func TestString_ToString(t *testing.T) {
 	tests := []struct {
 		name string
@@ -56,9 +70,14 @@ func TestString_ToString(t *testing.T) {
 	}
 }
 
+// TestString_TrimSpace covers string trim space.
+//
+// Revisions:
+//   - 2025-12-12 20:07: initial creation
 func TestString_TrimSpace(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1 * 4096))
 	str := container.NewStr(a)
+
 	tests := []struct {
 		name string
 		s    string
@@ -84,9 +103,14 @@ func TestString_TrimSpace(t *testing.T) {
 	}
 }
 
+// TestString_IsEmpty covers string is empty.
+//
+// Revisions:
+//   - 2025-12-12 20:07: initial creation
 func TestString_IsEmpty(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1 * 4096))
 	str := container.NewStr(a)
+
 	tests := []struct {
 		name string
 		s    string
@@ -110,9 +134,14 @@ func TestString_IsEmpty(t *testing.T) {
 	}
 }
 
+// TestString_Contains covers string contains.
+//
+// Revisions:
+//   - 2025-12-12 20:07: initial creation
 func TestString_Contains(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1 * 4096))
 	str := container.NewStr(a)
+
 	tests := []struct {
 		name   string
 		s      string
@@ -130,15 +159,26 @@ func TestString_Contains(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := str.Contains(tt.s, tt.substr)
 			if got != tt.want {
-				t.Errorf("Contains(%q, %q) = %v, want %v", tt.s, tt.substr, got, tt.want)
+				t.Errorf(
+					"Contains(%q, %q) = %v, want %v",
+					tt.s,
+					tt.substr,
+					got,
+					tt.want,
+				)
 			}
 		})
 	}
 }
 
+// TestString_HasPrefix covers string has prefix.
+//
+// Revisions:
+//   - 2025-12-12 20:07: initial creation
 func TestString_HasPrefix(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1 * 4096))
 	str := container.NewStr(a)
+
 	tests := []struct {
 		name   string
 		s      string
@@ -155,15 +195,26 @@ func TestString_HasPrefix(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := str.HasPrefix(tt.s, tt.prefix)
 			if got != tt.want {
-				t.Errorf("HasPrefix(%q, %q) = %v, want %v", tt.s, tt.prefix, got, tt.want)
+				t.Errorf(
+					"HasPrefix(%q, %q) = %v, want %v",
+					tt.s,
+					tt.prefix,
+					got,
+					tt.want,
+				)
 			}
 		})
 	}
 }
 
+// TestString_HasSuffix covers string has suffix.
+//
+// Revisions:
+//   - 2025-12-12 20:07: initial creation
 func TestString_HasSuffix(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1 * 4096))
 	str := container.NewStr(a)
+
 	tests := []struct {
 		name   string
 		s      string
@@ -180,15 +231,26 @@ func TestString_HasSuffix(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := str.HasSuffix(tt.s, tt.suffix)
 			if got != tt.want {
-				t.Errorf("HasSuffix(%q, %q) = %v, want %v", tt.s, tt.suffix, got, tt.want)
+				t.Errorf(
+					"HasSuffix(%q, %q) = %v, want %v",
+					tt.s,
+					tt.suffix,
+					got,
+					tt.want,
+				)
 			}
 		})
 	}
 }
 
+// TestString_Index covers string index.
+//
+// Revisions:
+//   - 2025-12-12 20:07: initial creation
 func TestString_Index(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1 * 4096))
 	str := container.NewStr(a)
+
 	tests := []struct {
 		name   string
 		s      string
@@ -206,15 +268,26 @@ func TestString_Index(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := str.Index(tt.s, tt.substr)
 			if got != tt.want {
-				t.Errorf("Index(%q, %q) = %v, want %v", tt.s, tt.substr, got, tt.want)
+				t.Errorf(
+					"Index(%q, %q) = %v, want %v",
+					tt.s,
+					tt.substr,
+					got,
+					tt.want,
+				)
 			}
 		})
 	}
 }
 
+// TestString_LastIndex covers string last index.
+//
+// Revisions:
+//   - 2025-12-12 20:07: initial creation
 func TestString_LastIndex(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1 * 4096))
 	str := container.NewStr(a)
+
 	tests := []struct {
 		name   string
 		s      string
@@ -231,15 +304,26 @@ func TestString_LastIndex(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := str.LastIndex(tt.s, tt.substr)
 			if got != tt.want {
-				t.Errorf("LastIndex(%q, %q) = %v, want %v", tt.s, tt.substr, got, tt.want)
+				t.Errorf(
+					"LastIndex(%q, %q) = %v, want %v",
+					tt.s,
+					tt.substr,
+					got,
+					tt.want,
+				)
 			}
 		})
 	}
 }
 
+// TestString_Trim covers string trim.
+//
+// Revisions:
+//   - 2025-12-12 20:07: initial creation
 func TestString_Trim(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1 * 4096))
 	str := container.NewStr(a)
+
 	tests := []struct {
 		name   string
 		s      string
@@ -256,15 +340,26 @@ func TestString_Trim(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := str.Trim(tt.s, tt.cutset)
 			if got != tt.want {
-				t.Errorf("Trim(%q, %q) = %q, want %q", tt.s, tt.cutset, got, tt.want)
+				t.Errorf(
+					"Trim(%q, %q) = %q, want %q",
+					tt.s,
+					tt.cutset,
+					got,
+					tt.want,
+				)
 			}
 		})
 	}
 }
 
+// TestString_TrimLeft covers string trim left.
+//
+// Revisions:
+//   - 2025-12-12 20:07: initial creation
 func TestString_TrimLeft(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1 * 4096))
 	str := container.NewStr(a)
+
 	tests := []struct {
 		name   string
 		s      string
@@ -279,15 +374,26 @@ func TestString_TrimLeft(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := str.TrimLeft(tt.s, tt.cutset)
 			if got != tt.want {
-				t.Errorf("TrimLeft(%q, %q) = %q, want %q", tt.s, tt.cutset, got, tt.want)
+				t.Errorf(
+					"TrimLeft(%q, %q) = %q, want %q",
+					tt.s,
+					tt.cutset,
+					got,
+					tt.want,
+				)
 			}
 		})
 	}
 }
 
+// TestString_TrimRight covers string trim right.
+//
+// Revisions:
+//   - 2025-12-12 20:07: initial creation
 func TestString_TrimRight(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1 * 4096))
 	str := container.NewStr(a)
+
 	tests := []struct {
 		name   string
 		s      string
@@ -302,15 +408,26 @@ func TestString_TrimRight(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := str.TrimRight(tt.s, tt.cutset)
 			if got != tt.want {
-				t.Errorf("TrimRight(%q, %q) = %q, want %q", tt.s, tt.cutset, got, tt.want)
+				t.Errorf(
+					"TrimRight(%q, %q) = %q, want %q",
+					tt.s,
+					tt.cutset,
+					got,
+					tt.want,
+				)
 			}
 		})
 	}
 }
 
+// TestString_EqualFold covers string equal fold.
+//
+// Revisions:
+//   - 2025-12-12 20:07: initial creation
 func TestString_EqualFold(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1 * 4096))
 	str := container.NewStr(a)
+
 	tests := []struct {
 		name string
 		s    string
@@ -327,15 +444,26 @@ func TestString_EqualFold(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := str.EqualFold(tt.s, tt.t)
 			if got != tt.want {
-				t.Errorf("EqualFold(%q, %q) = %v, want %v", tt.s, tt.t, got, tt.want)
+				t.Errorf(
+					"EqualFold(%q, %q) = %v, want %v",
+					tt.s,
+					tt.t,
+					got,
+					tt.want,
+				)
 			}
 		})
 	}
 }
 
+// TestString_Compare covers string compare.
+//
+// Revisions:
+//   - 2025-12-12 20:07: initial creation
 func TestString_Compare(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1 * 4096))
 	str := container.NewStr(a)
+
 	tests := []struct {
 		name string
 		s    string
@@ -357,6 +485,7 @@ func TestString_Compare(t *testing.T) {
 			} else if got > 0 {
 				got = 1
 			}
+
 			if got != tt.want {
 				t.Errorf("Compare(%q, %q) = %v, want %v", tt.s, tt.t, got, tt.want)
 			}
@@ -364,9 +493,14 @@ func TestString_Compare(t *testing.T) {
 	}
 }
 
+// TestString_ToLower covers string to lower.
+//
+// Revisions:
+//   - 2025-12-12 20:07: initial creation
 func TestString_ToLower(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1 * 4096))
 	str := container.NewStr(a)
+
 	tests := []struct {
 		name string
 		s    string
@@ -387,9 +521,14 @@ func TestString_ToLower(t *testing.T) {
 	}
 }
 
+// TestString_ToUpper covers string to upper.
+//
+// Revisions:
+//   - 2025-12-12 20:07: initial creation
 func TestString_ToUpper(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1 * 4096))
 	str := container.NewStr(a)
+
 	tests := []struct {
 		name string
 		s    string
@@ -410,9 +549,14 @@ func TestString_ToUpper(t *testing.T) {
 	}
 }
 
+// TestString_Title covers string title.
+//
+// Revisions:
+//   - 2025-12-12 20:07: initial creation
 func TestString_Title(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1 * 4096))
 	str := container.NewStr(a)
+
 	tests := []struct {
 		name string
 		s    string
@@ -432,8 +576,13 @@ func TestString_Title(t *testing.T) {
 	}
 }
 
+// TestString_Split covers string split.
+//
+// Revisions:
+//   - 2025-12-12 20:07: initial creation
 func TestString_Split(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1024 * 4096))
+
 	str := container.NewStr(a)
 	defer a.Delete()
 
@@ -453,20 +602,40 @@ func TestString_Split(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := str.Split(tt.s, tt.sep)
 			if len(got) != len(tt.want) {
-				t.Errorf("Split(%q, %q) length = %v, want %v", tt.s, tt.sep, len(got), len(tt.want))
+				t.Errorf(
+					"Split(%q, %q) length = %v, want %v",
+					tt.s,
+					tt.sep,
+					len(got),
+					len(tt.want),
+				)
+
 				return
 			}
+
 			for i := range got {
 				if got[i] != tt.want[i] {
-					t.Errorf("Split(%q, %q)[%d] = %q, want %q", tt.s, tt.sep, i, got[i], tt.want[i])
+					t.Errorf(
+						"Split(%q, %q)[%d] = %q, want %q",
+						tt.s,
+						tt.sep,
+						i,
+						got[i],
+						tt.want[i],
+					)
 				}
 			}
 		})
 	}
 }
 
+// TestString_Join covers string join.
+//
+// Revisions:
+//   - 2025-12-12 20:07: initial creation
 func TestString_Join(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1024 * 4096))
+
 	str := container.NewStr(a)
 	defer a.Delete()
 
@@ -486,14 +655,25 @@ func TestString_Join(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := str.Join(tt.elems, tt.sep)
 			if got != tt.want {
-				t.Errorf("Join(%v, %q) = %q, want %q", tt.elems, tt.sep, got, tt.want)
+				t.Errorf(
+					"Join(%v, %q) = %q, want %q",
+					tt.elems,
+					tt.sep,
+					got,
+					tt.want,
+				)
 			}
 		})
 	}
 }
 
+// TestString_Fields covers string fields.
+//
+// Revisions:
+//   - 2025-12-12 20:07: initial creation
 func TestString_Fields(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1024 * 4096))
+
 	str := container.NewStr(a)
 	defer a.Delete()
 
@@ -515,20 +695,38 @@ func TestString_Fields(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := str.Fields(tt.s)
 			if len(got) != len(tt.want) {
-				t.Errorf("Fields(%q) length = %v, want %v", tt.s, len(got), len(tt.want))
+				t.Errorf(
+					"Fields(%q) length = %v, want %v",
+					tt.s,
+					len(got),
+					len(tt.want),
+				)
+
 				return
 			}
+
 			for i := range got {
 				if got[i] != tt.want[i] {
-					t.Errorf("Fields(%q)[%d] = %q, want %q", tt.s, i, got[i], tt.want[i])
+					t.Errorf(
+						"Fields(%q)[%d] = %q, want %q",
+						tt.s,
+						i,
+						got[i],
+						tt.want[i],
+					)
 				}
 			}
 		})
 	}
 }
 
+// TestString_SplitJoinRoundtrip covers string split join roundtrip.
+//
+// Revisions:
+//   - 2025-12-12 20:07: initial creation
 func TestString_SplitJoinRoundtrip(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1024 * 4096))
+
 	str := container.NewStr(a)
 	defer a.Delete()
 
@@ -544,17 +742,27 @@ func TestString_SplitJoinRoundtrip(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			parts := str.Split(tt.s, tt.sep)
+
 			got := str.Join(parts, tt.sep)
 			if got != tt.s {
-				t.Errorf("Split then Join roundtrip failed: got %q, want %q", got, tt.s)
+				t.Errorf(
+					"Split then Join roundtrip failed: got %q, want %q",
+					got,
+					tt.s,
+				)
 			}
 		})
 	}
 }
 
+// TestString_Lines covers string lines.
+//
+// Revisions:
+//   - 2025-12-12 20:07: initial creation
 func TestString_Lines(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1 * 4096))
 	str := container.NewStr(a)
+
 	tests := []struct {
 		name string
 		s    string
@@ -564,7 +772,11 @@ func TestString_Lines(t *testing.T) {
 		{"single line no newline", "hello", []string{"hello"}},
 		{"single line with newline", "hello\n", []string{"hello\n"}},
 		{"multiple lines", "line1\nline2\nline3", []string{"line1\n", "line2\n", "line3"}},
-		{"multiple lines no final newline", "line1\nline2\nline3", []string{"line1\n", "line2\n", "line3"}},
+		{
+			"multiple lines no final newline",
+			"line1\nline2\nline3",
+			[]string{"line1\n", "line2\n", "line3"},
+		},
 		{"empty lines", "\n\n", []string{"\n", "\n"}},
 		{"mixed", "line1\n\nline3\n", []string{"line1\n", "\n", "line3\n"}},
 	}
@@ -574,21 +786,33 @@ func TestString_Lines(t *testing.T) {
 			for line := range str.Lines(tt.s) {
 				got = append(got, line)
 			}
+
 			if len(got) != len(tt.want) {
 				t.Errorf("Lines() length = %v, want %v", len(got), len(tt.want))
 				return
 			}
+
 			for i := range got {
 				if got[i] != tt.want[i] {
-					t.Errorf("Lines()[%d] = %q, want %q", i, got[i], tt.want[i])
+					t.Errorf(
+						"Lines()[%d] = %q, want %q",
+						i,
+						got[i],
+						tt.want[i],
+					)
 				}
 			}
 		})
 	}
 }
 
+// TestString_Clone covers string clone.
+//
+// Revisions:
+//   - 2025-12-12 20:07: initial creation
 func TestString_Clone(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(4096 * 4096))
+
 	str := container.NewStr(a)
 	defer a.Reset()
 
@@ -611,8 +835,13 @@ func TestString_Clone(t *testing.T) {
 	}
 }
 
+// TestString_FieldsFunc covers string fields func.
+//
+// Revisions:
+//   - 2025-12-12 20:07: initial creation
 func TestString_FieldsFunc(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(4096 * 4096))
+
 	str := container.NewStr(a)
 	defer a.Reset()
 
@@ -622,8 +851,18 @@ func TestString_FieldsFunc(t *testing.T) {
 		f    func(rune) bool
 		want []string
 	}{
-		{"spaces", "hello world test", func(r rune) bool { return r == ' ' }, []string{"hello", "world", "test"}},
-		{"commas", "a,b,c", func(r rune) bool { return r == ',' }, []string{"a", "b", "c"}},
+		{
+			"spaces",
+			"hello world test",
+			func(r rune) bool { return r == ' ' },
+			[]string{"hello", "world", "test"},
+		},
+		{
+			"commas",
+			"a,b,c",
+			func(r rune) bool { return r == ',' },
+			[]string{"a", "b", "c"},
+		},
 		{"empty", "", func(r rune) bool { return r == ' ' }, []string{}},
 		{"no fields", "   ", func(r rune) bool { return r == ' ' }, []string{}},
 	}
@@ -631,21 +870,37 @@ func TestString_FieldsFunc(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := str.FieldsFunc(tt.s, tt.f)
 			if len(got) != len(tt.want) {
-				t.Errorf("FieldsFunc() length = %v, want %v", len(got), len(tt.want))
+				t.Errorf(
+					"FieldsFunc() length = %v, want %v",
+					len(got),
+					len(tt.want),
+				)
+
 				return
 			}
+
 			for i := range got {
 				if got[i] != tt.want[i] {
-					t.Errorf("FieldsFunc()[%d] = %q, want %q", i, got[i], tt.want[i])
+					t.Errorf(
+						"FieldsFunc()[%d] = %q, want %q",
+						i,
+						got[i],
+						tt.want[i],
+					)
 				}
 			}
 		})
 	}
 }
 
+// TestString_ContainsFunc covers string contains func.
+//
+// Revisions:
+//   - 2025-12-12 20:07: initial creation
 func TestString_ContainsFunc(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1 * 4096))
 	str := container.NewStr(a)
+
 	tests := []struct {
 		name string
 		s    string
@@ -654,7 +909,12 @@ func TestString_ContainsFunc(t *testing.T) {
 	}{
 		{"contains space", "hello world", func(r rune) bool { return r == ' ' }, true},
 		{"no space", "helloworld", func(r rune) bool { return r == ' ' }, false},
-		{"contains digit", "abc123", func(r rune) bool { return r >= '0' && r <= '9' }, true},
+		{
+			"contains digit",
+			"abc123",
+			func(r rune) bool { return r >= '0' && r <= '9' },
+			true,
+		},
 		{"no digit", "abc", func(r rune) bool { return r >= '0' && r <= '9' }, false},
 	}
 	for _, tt := range tests {
@@ -667,9 +927,14 @@ func TestString_ContainsFunc(t *testing.T) {
 	}
 }
 
+// TestString_IndexFunc covers string index func.
+//
+// Revisions:
+//   - 2025-12-12 20:07: initial creation
 func TestString_IndexFunc(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1 * 4096))
 	str := container.NewStr(a)
+
 	tests := []struct {
 		name string
 		s    string
@@ -691,9 +956,14 @@ func TestString_IndexFunc(t *testing.T) {
 	}
 }
 
+// TestString_LastIndexFunc covers string last index func.
+//
+// Revisions:
+//   - 2025-12-12 20:07: initial creation
 func TestString_LastIndexFunc(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1 * 4096))
 	str := container.NewStr(a)
+
 	tests := []struct {
 		name string
 		s    string
@@ -702,7 +972,12 @@ func TestString_LastIndexFunc(t *testing.T) {
 	}{
 		{"last space", "hello world test", func(r rune) bool { return r == ' ' }, 11},
 		{"no space", "helloworld", func(r rune) bool { return r == ' ' }, -1},
-		{"last digit", "abc123def456", func(r rune) bool { return r >= '0' && r <= '9' }, 11},
+		{
+			"last digit",
+			"abc123def456",
+			func(r rune) bool { return r >= '0' && r <= '9' },
+			11,
+		},
 		{"no digit", "abc", func(r rune) bool { return r >= '0' && r <= '9' }, -1},
 	}
 	for _, tt := range tests {
@@ -715,9 +990,14 @@ func TestString_LastIndexFunc(t *testing.T) {
 	}
 }
 
+// TestString_MapASCII covers string map ascii.
+//
+// Revisions:
+//   - 2025-12-12 20:07: initial creation
 func TestString_MapASCII(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1 * 4096))
 	str := container.NewStr(a)
+
 	tests := []struct {
 		name    string
 		s       string
@@ -729,6 +1009,7 @@ func TestString_MapASCII(t *testing.T) {
 			if c == ' ' {
 				return -1
 			}
+
 			return int(c)
 		}, "helloworld"},
 		{"identity", "hello", func(c byte) int { return int(c) }, "hello"},
@@ -736,6 +1017,7 @@ func TestString_MapASCII(t *testing.T) {
 			if c >= '0' && c <= '9' {
 				return int(c)
 			}
+
 			return -1
 		}, "123"},
 	}
@@ -749,9 +1031,14 @@ func TestString_MapASCII(t *testing.T) {
 	}
 }
 
+// TestString_MapUTF8 covers string map utf 8.
+//
+// Revisions:
+//   - 2025-12-12 20:07: initial creation
 func TestString_MapUTF8(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1 * 4096))
 	str := container.NewStr(a)
+
 	tests := []struct {
 		name    string
 		s       string
@@ -763,6 +1050,7 @@ func TestString_MapUTF8(t *testing.T) {
 			if r == ' ' {
 				return -1
 			}
+
 			return r
 		}, "helloworld"},
 		{"identity", "hello", func(r rune) rune { return r }, "hello"},
@@ -770,6 +1058,7 @@ func TestString_MapUTF8(t *testing.T) {
 			if r == 'é' {
 				return 'e'
 			}
+
 			return r
 		}, "cafe"},
 	}
@@ -783,9 +1072,14 @@ func TestString_MapUTF8(t *testing.T) {
 	}
 }
 
+// TestString_MapString covers string map string.
+//
+// Revisions:
+//   - 2025-12-12 20:07: initial creation
 func TestString_MapString(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1 * 4096))
 	str := container.NewStr(a)
+
 	tests := []struct {
 		name    string
 		s       string
@@ -797,6 +1091,7 @@ func TestString_MapString(t *testing.T) {
 			if r == ' ' {
 				return -1
 			}
+
 			return r
 		}, "helloworld"},
 		{"identity", "hello", func(r rune) rune { return r }, "hello"},
@@ -811,8 +1106,13 @@ func TestString_MapString(t *testing.T) {
 	}
 }
 
+// TestString_ToTitle covers string to title.
+//
+// Revisions:
+//   - 2025-12-12 20:07: initial creation
 func TestString_ToTitle(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(4096 * 4096))
+
 	str := container.NewStr(a)
 	defer a.Reset()
 
@@ -835,8 +1135,13 @@ func TestString_ToTitle(t *testing.T) {
 	}
 }
 
+// TestString_ToValidUTF8 covers string to valid utf 8.
+//
+// Revisions:
+//   - 2025-12-12 20:07: initial creation
 func TestString_ToValidUTF8(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(4096 * 4096))
+
 	str := container.NewStr(a)
 	defer a.Reset()
 
@@ -860,9 +1165,14 @@ func TestString_ToValidUTF8(t *testing.T) {
 	}
 }
 
+// TestString_TrimFunc covers string trim func.
+//
+// Revisions:
+//   - 2025-12-12 20:07: initial creation
 func TestString_TrimFunc(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1 * 4096))
 	str := container.NewStr(a)
+
 	tests := []struct {
 		name string
 		s    string
@@ -870,7 +1180,12 @@ func TestString_TrimFunc(t *testing.T) {
 		want string
 	}{
 		{"trim spaces", "  hello  ", func(r rune) bool { return r == ' ' }, "hello"},
-		{"trim digits", "123hello456", func(r rune) bool { return r >= '0' && r <= '9' }, "hello"},
+		{
+			"trim digits",
+			"123hello456",
+			func(r rune) bool { return r >= '0' && r <= '9' },
+			"hello",
+		},
 		{"no trim", "hello", func(r rune) bool { return r == ' ' }, "hello"},
 	}
 	for _, tt := range tests {

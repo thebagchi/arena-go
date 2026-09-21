@@ -8,9 +8,14 @@ import (
 	iopackage "github.com/thebagchi/arena-go/io"
 )
 
+// TestWriter covers writer.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestWriter(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1 * 4096))
 	defer a.Delete()
+
 	w := iopackage.NewWriter(a)
 
 	// Test Write
@@ -18,6 +23,7 @@ func TestWriter(t *testing.T) {
 	if err != nil {
 		t.Errorf("Write failed: %v", err)
 	}
+
 	if n != 5 {
 		t.Errorf("Write: expected 5 bytes written, got %d", n)
 	}
@@ -27,6 +33,7 @@ func TestWriter(t *testing.T) {
 	if err != nil {
 		t.Errorf("WriteString failed: %v", err)
 	}
+
 	if n != 6 {
 		t.Errorf("WriteString: expected 6 bytes written, got %d", n)
 	}
@@ -39,6 +46,7 @@ func TestWriter(t *testing.T) {
 
 	// Test Bytes
 	expected := "hello world!"
+
 	actual := string(w.Bytes())
 	if actual != expected {
 		t.Errorf("Bytes: expected %q, got %q", expected, actual)
@@ -56,34 +64,45 @@ func TestWriter(t *testing.T) {
 
 	// Test Reset
 	w.Reset()
+
 	if w.Len() != 0 {
 		t.Errorf("Reset: expected len 0, got %d", w.Len())
 	}
+
 	if w.Cap() == 0 {
 		t.Errorf("Reset: capacity should remain after reset")
 	}
 
 	// Test growth
 	w.Reset()
+
 	largeData := make([]byte, 1000)
 	for i := range largeData {
 		largeData[i] = byte(i % 256)
 	}
+
 	n, err = w.Write(largeData)
 	if err != nil {
 		t.Errorf("Write large data failed: %v", err)
 	}
+
 	if n != 1000 {
 		t.Errorf("Write large data: expected 1000 bytes written, got %d", n)
 	}
+
 	if w.Len() != 1000 {
 		t.Errorf("Write large data: expected len 1000, got %d", w.Len())
 	}
+
 	if len(w.Bytes()) != 1000 {
 		t.Errorf("Write large data: expected bytes len 1000, got %d", len(w.Bytes()))
 	}
 }
 
+// TestWriter_MultipleWrites covers writer multiple writes.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestWriter_MultipleWrites(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1 * 4096))
 	defer a.Delete()
@@ -99,19 +118,35 @@ func TestWriter_MultipleWrites(t *testing.T) {
 	}
 
 	totalBytes := 0
+
 	for _, data := range writes {
 		n, err := w.Write(data)
 		if err != nil || n != len(data) {
-			t.Errorf("Write failed: expected %d bytes, got %d, err: %v", len(data), n, err)
+			t.Errorf(
+				"Write failed: expected %d bytes, got %d, err: %v",
+				len(data),
+				n,
+				err,
+			)
 		}
+
 		totalBytes += n
 	}
 
 	if w.Len() != totalBytes || string(w.Bytes()) != "hello world!" {
-		t.Errorf("Multiple writes: expected 'hello world!' with len %d, got %q with len %d", totalBytes, string(w.Bytes()), w.Len())
+		t.Errorf(
+			"Multiple writes: expected 'hello world!' with len %d, got %q with len %d",
+			totalBytes,
+			string(w.Bytes()),
+			w.Len(),
+		)
 	}
 }
 
+// TestWriter_WriteStrings covers writer write strings.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestWriter_WriteStrings(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1 * 4096))
 	defer a.Delete()
@@ -126,11 +161,13 @@ func TestWriter_WriteStrings(t *testing.T) {
 	}
 
 	expectedLen := 0
+
 	for _, s := range strings {
 		n, err := w.WriteString(s)
 		if err != nil || n != len(s) {
 			t.Errorf("WriteString failed: expected %d bytes, got %d", len(s), n)
 		}
+
 		expectedLen += len(s)
 	}
 
@@ -143,6 +180,10 @@ func TestWriter_WriteStrings(t *testing.T) {
 	}
 }
 
+// TestWriter_WriteBytes covers writer write bytes.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestWriter_WriteBytes(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1 * 4096))
 	defer a.Delete()
@@ -166,6 +207,10 @@ func TestWriter_WriteBytes(t *testing.T) {
 	}
 }
 
+// TestWriter_ResetAndReuse covers writer reset and reuse.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestWriter_ResetAndReuse(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1 * 4096))
 	defer a.Delete()
@@ -173,33 +218,42 @@ func TestWriter_ResetAndReuse(t *testing.T) {
 	w := iopackage.NewWriter(a)
 
 	// First write
-	w.Write([]byte("first"))
+	_MustWrite(t, w, []byte("first"))
+
 	if w.Len() != 5 {
 		t.Errorf("First write: expected len 5, got %d", w.Len())
 	}
 
 	// Reset and second write
 	w.Reset()
+
 	if w.Len() != 0 {
 		t.Errorf("After reset: expected len 0, got %d", w.Len())
 	}
 
-	w.Write([]byte("second"))
+	_MustWrite(t, w, []byte("second"))
+
 	if w.Len() != 6 {
 		t.Errorf("Second write: expected len 6, got %d", w.Len())
 	}
+
 	if string(w.Bytes()) != "second" {
 		t.Errorf("Expected 'second', got %q", string(w.Bytes()))
 	}
 
 	// Reset again for third write
 	w.Reset()
-	w.WriteString("third")
+	_MustWriteString(t, w, "third")
+
 	if string(w.Bytes()) != "third" {
 		t.Errorf("Third write: expected 'third', got %q", string(w.Bytes()))
 	}
 }
 
+// TestWriter_CapacityGrowth covers writer capacity growth.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestWriter_CapacityGrowth(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(10 * 4096))
 	defer a.Delete()
@@ -213,7 +267,8 @@ func TestWriter_CapacityGrowth(t *testing.T) {
 		largeData[i] = 'X'
 	}
 
-	w.Write(largeData)
+	_MustWrite(t, w, largeData)
+
 	if w.Cap() <= initialCap {
 		t.Errorf("Expected capacity to grow from %d to > %d", initialCap, initialCap)
 	}
@@ -223,6 +278,10 @@ func TestWriter_CapacityGrowth(t *testing.T) {
 	}
 }
 
+// TestWriter_MixedOperations covers writer mixed operations.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestWriter_MixedOperations(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1 * 4096))
 	defer a.Delete()
@@ -230,12 +289,12 @@ func TestWriter_MixedOperations(t *testing.T) {
 	w := iopackage.NewWriter(a)
 
 	// Mix Write, WriteString, WriteByte
-	w.Write([]byte("Start:"))
-	w.WriteByte(' ')
-	w.WriteString("Hello")
-	w.WriteByte(' ')
-	w.Write([]byte("World"))
-	w.WriteByte('!')
+	_MustWrite(t, w, []byte("Start:"))
+	_MustWriteByte(t, w, ' ')
+	_MustWriteString(t, w, "Hello")
+	_MustWriteByte(t, w, ' ')
+	_MustWrite(t, w, []byte("World"))
+	_MustWriteByte(t, w, '!')
 
 	expected := "Start: Hello World!"
 	if string(w.Bytes()) != expected {
@@ -247,6 +306,10 @@ func TestWriter_MixedOperations(t *testing.T) {
 	}
 }
 
+// TestWriter_EmptyWrites covers writer empty writes.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestWriter_EmptyWrites(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1 * 4096))
 	defer a.Delete()
@@ -264,32 +327,40 @@ func TestWriter_EmptyWrites(t *testing.T) {
 	}
 
 	// Write something
-	w.Write([]byte("data"))
+	_MustWrite(t, w, []byte("data"))
+
 	if w.Len() != 4 {
 		t.Errorf("After data: expected len 4, got %d", w.Len())
 	}
 
 	// Another empty write
-	w.Write([]byte{})
+	_MustWrite(t, w, []byte{})
+
 	if w.Len() != 4 {
 		t.Errorf("After second empty write: expected len 4, got %d", w.Len())
 	}
 }
 
+// TestWriter_BytesSliceBehavior covers writer bytes slice behavior.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestWriter_BytesSliceBehavior(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1 * 4096))
 	defer a.Delete()
 
 	w := iopackage.NewWriter(a)
 
-	w.Write([]byte("test"))
+	_MustWrite(t, w, []byte("test"))
+
 	bytes1 := w.Bytes()
 	if string(bytes1) != "test" {
 		t.Errorf("Expected 'test', got %q", string(bytes1))
 	}
 
 	// Add more data
-	w.Write([]byte("ing"))
+	_MustWrite(t, w, []byte("ing"))
+
 	bytes2 := w.Bytes()
 	if string(bytes2) != "testing" {
 		t.Errorf("Expected 'testing', got %q", string(bytes2))
@@ -297,13 +368,18 @@ func TestWriter_BytesSliceBehavior(t *testing.T) {
 
 	// Reset and write new data
 	w.Reset()
-	w.WriteString("new")
+	_MustWriteString(t, w, "new")
+
 	bytes3 := w.Bytes()
 	if string(bytes3) != "new" {
 		t.Errorf("Expected 'new', got %q", string(bytes3))
 	}
 }
 
+// TestWriter_VeryLargeData covers writer very large data.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestWriter_VeryLargeData(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(100 * 4096))
 	defer a.Delete()
@@ -329,12 +405,22 @@ func TestWriter_VeryLargeData(t *testing.T) {
 	written := w.Bytes()
 	for i := 0; i < 10000; i++ {
 		if written[i] != largeData[i] {
-			t.Errorf("Data mismatch at index %d: expected %d, got %d", i, largeData[i], written[i])
+			t.Errorf(
+				"Data mismatch at index %d: expected %d, got %d",
+				i,
+				largeData[i],
+				written[i],
+			)
+
 			break
 		}
 	}
 }
 
+// TestWriter_SequentialByteWrites covers writer sequential byte writes.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestWriter_SequentialByteWrites(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1 * 4096))
 	defer a.Delete()
@@ -356,5 +442,41 @@ func TestWriter_SequentialByteWrites(t *testing.T) {
 	// Check content length
 	if len(w.Bytes()) != 95 {
 		t.Errorf("Expected bytes len 95, got %d", len(w.Bytes()))
+	}
+}
+
+// _MustWrite writes p and fails the test if the writer reports an error.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
+func _MustWrite(t *testing.T, w *iopackage.Writer, p []byte) {
+	t.Helper()
+
+	if _, err := w.Write(p); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+}
+
+// _MustWriteString writes s and fails the test if the writer reports an error.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
+func _MustWriteString(t *testing.T, w *iopackage.Writer, s string) {
+	t.Helper()
+
+	if _, err := w.WriteString(s); err != nil {
+		t.Fatalf("WriteString: %v", err)
+	}
+}
+
+// _MustWriteByte writes c and fails the test if the writer reports an error.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
+func _MustWriteByte(t *testing.T, w *iopackage.Writer, c byte) {
+	t.Helper()
+
+	if err := w.WriteByte(c); err != nil {
+		t.Fatalf("WriteByte: %v", err)
 	}
 }

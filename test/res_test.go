@@ -1,246 +1,296 @@
-package test
+package arena_test
 
 import (
+	"fmt"
 	"testing"
 	"unsafe"
 
 	"github.com/thebagchi/arena-go/res"
 )
 
-// TestResAllocChunkSwitching verifies Res allocator handles chunk switching correctly
-func TestRes_AllocChunkSwitching(t *testing.T) {
-	r := res.NewRes(10000)
-
-	ptrs := make([]unsafe.Pointer, 30)
-	for i := 0; i < 30; i++ {
-		ptrs[i] = r.Alloc(2000, 8)
-	}
-
-	// Verify no duplicate addresses
-	seenAddrs := make(map[uintptr]bool)
-	for i := 0; i < 30; i++ {
-		ptrAddr := uintptr(ptrs[i])
-		if seenAddrs[ptrAddr] {
-			t.Errorf("duplicate address found at allocation %d: %p", i, ptrs[i])
-		}
-		seenAddrs[ptrAddr] = true
-	}
-}
-
-// TestResAllocBasic tests basic allocation functionality
-func TestRes_AllocBasic(t *testing.T) {
-	r := res.NewRes(4096)
-
-	ptr := r.Alloc(64, 8)
-	if ptr == nil {
-		t.Fatal("Alloc returned nil")
-	}
-
-	// Verify pointer is usable
-	*((*int)(ptr)) = 42
-	if *((*int)(ptr)) != 42 {
-		t.Error("failed to write to allocated memory")
-	}
-}
-
-// TestResAllocAlignment tests alignment constraints
-func TestRes_AllocAlignment(t *testing.T) {
-	r := res.NewRes(4096)
-
-	tests := []struct {
-		name      string
-		size      uint64
-		alignment uint64
+// TestRoundPow2 checks the rounding helper, including the zero that used to
+// underflow and return zero rather than one.
+//
+// Revisions:
+//   - 2025-12-31 18:33: initial creation
+func TestRoundPow2(t *testing.T) {
+	cases := []struct {
+		name string
+		in   uint64
+		want uint64
 	}{
-		{"8-byte alignment", 64, 8},
-		{"16-byte alignment", 256, 16},
-		{"32-byte alignment", 512, 32},
-		{"64-byte alignment", 1024, 64},
+		{name: "zero", in: 0, want: 1},
+		{name: "one", in: 1, want: 1},
+		{name: "two", in: 2, want: 2},
+		{name: "three", in: 3, want: 4},
+		{name: "already a power of two", in: 4096, want: 4096},
+		{name: "one over", in: 4097, want: 8192},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ptr := r.Alloc(tt.size, tt.alignment)
-			if ptr == nil {
-				t.Fatal("Alloc returned nil")
-			}
-
-			addr := uintptr(ptr)
-			if addr%uintptr(tt.alignment) != 0 {
-				t.Errorf("pointer not aligned: %p (alignment %d)", ptr, tt.alignment)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := res.RoundPow2(tc.in); got != tc.want {
+				t.Errorf("RoundPow2(%d) = %d, want %d", tc.in, got, tc.want)
 			}
 		})
 	}
 }
 
-// TestResAllocLarge tests allocation of large objects
-func TestRes_AllocLarge(t *testing.T) {
-	r := res.NewRes(100000)
-
-	ptr := r.Alloc(50000, 8)
-	if ptr == nil {
-		t.Fatal("Alloc returned nil for large allocation")
+// TestLog2 checks the log helper, including the zero that used to wrap to the
+// maximum uint64.
+//
+// Revisions:
+//   - 2025-12-31 18:33: initial creation
+func TestLog2(t *testing.T) {
+	cases := []struct {
+		name string
+		in   uint64
+		want uint64
+	}{
+		{name: "zero", in: 0, want: 0},
+		{name: "one", in: 1, want: 0},
+		{name: "sixteen", in: 16, want: 4},
+		{name: "not a power of two", in: 17, want: 4},
 	}
 
-	// Verify we can write across the allocation
-	data := (*[50000]byte)(ptr)
-	data[0] = 1
-	data[49999] = 2
-	if data[0] != 1 || data[49999] != 2 {
-		t.Error("failed to access large allocated memory")
-	}
-}
-
-// TestResReset tests reset functionality
-func TestRes_Reset(t *testing.T) {
-	r := res.NewRes(4096)
-
-	ptr1 := r.Alloc(100, 8)
-	r.Reset()
-	ptr2 := r.Alloc(100, 8)
-
-	// After reset, next allocation might reuse same chunk
-	if ptr1 == nil || ptr2 == nil {
-		t.Fatal("Alloc returned nil")
-	}
-}
-
-// TestResCurrent tests current chunk tracking
-func TestRes_Current(t *testing.T) {
-	r := res.NewRes(4096)
-
-	initial := r.Current()
-	if initial != 0 {
-		t.Errorf("initial chunk should be 0, got %d", initial)
-	}
-
-	// Force chunk switch by allocating large blocks multiple times
-	r.Alloc(3000, 8)
-	r.Alloc(3000, 8) // This should trigger new chunk
-
-	second := r.Current()
-	if second <= 0 {
-		t.Errorf("chunk should have switched, still at %d", second)
-	}
-}
-
-// TestResChunks tests chunks access
-func TestRes_Chunks(t *testing.T) {
-	r := res.NewRes(4096)
-
-	chunks := r.Chunks()
-	if len(chunks) == 0 {
-		t.Fatal("no chunks available")
-	}
-
-	// Allocate to potentially create more chunks
-	r.Alloc(2000, 8)
-	r.Alloc(2000, 8)
-	r.Alloc(2000, 8)
-
-	chunks = r.Chunks()
-	if len(chunks) < 2 {
-		t.Errorf("expected at least 2 chunks, got %d", len(chunks))
-	}
-}
-
-// TestPageNew tests Page creation
-func TestPage_New(t *testing.T) {
-	p := res.NewPage(4096)
-	if p == nil {
-		t.Fatal("NewPage returned nil")
-	}
-	defer p.Delete()
-}
-
-// TestPageBase tests Page base access
-func TestPage_Base(t *testing.T) {
-	p := res.NewPage(4096)
-	defer p.Delete()
-
-	base := p.Base()
-	if len(base) == 0 {
-		t.Fatal("Base returned empty slice")
-	}
-}
-
-// TestPageDelete tests Page cleanup
-func TestPage_Delete(t *testing.T) {
-	p := res.NewPage(4096)
-	base1 := p.Base()
-	if len(base1) == 0 {
-		t.Fatal("Base returned empty slice before delete")
-	}
-
-	p.Delete()
-	base2 := p.Base()
-	if len(base2) != 0 {
-		t.Errorf("Base should be empty after Delete, got len %d", len(base2))
-	}
-}
-
-// TestResMultipleAllocations tests multiple allocations with different sizes
-func TestRes_MultipleAllocations(t *testing.T) {
-	r := res.NewRes(10000)
-
-	sizes := []uint64{64, 128, 256, 512, 1024}
-	ptrs := make([]unsafe.Pointer, 0)
-
-	for i, size := range sizes {
-		for j := 0; j < 5; j++ {
-			ptr := r.Alloc(size, 8)
-			if ptr == nil {
-				t.Fatalf("allocation %d (size %d) returned nil", i*5+j, size)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := res.Log2(tc.in); got != tc.want {
+				t.Errorf("Log2(%d) = %d, want %d", tc.in, got, tc.want)
 			}
-			ptrs = append(ptrs, ptr)
-		}
-	}
-
-	// Verify no duplicates
-	seenAddrs := make(map[uintptr]bool)
-	for idx, ptr := range ptrs {
-		addr := uintptr(ptr)
-		if seenAddrs[addr] {
-			t.Errorf("duplicate address at allocation %d: %p", idx, ptr)
-		}
-		seenAddrs[addr] = true
+		})
 	}
 }
 
-// TestResOwns tests ownership checks
-func TestRes_Owns(t *testing.T) {
-	r := res.NewRes(4096)
-	defer r.Delete()
-
-	ptr := r.Alloc(100, 8)
-	if ptr == nil {
-		t.Fatal("Alloc returned nil")
+// TestIsPow2 checks the alignment predicate every masking calculation relies on.
+//
+// Revisions:
+//   - 2025-12-31 18:33: initial creation
+func TestIsPow2(t *testing.T) {
+	cases := []struct {
+		name string
+		in   uint64
+		want bool
+	}{
+		{name: "zero", in: 0, want: false},
+		{name: "one", in: 1, want: true},
+		{name: "eight", in: 8, want: true},
+		{name: "twelve", in: 12, want: false},
 	}
 
-	if !r.Owns(ptr) {
-		t.Error("Owns should return true for allocated pointer")
-	}
-
-	// Test external pointer
-	external := new(int)
-	if r.Owns(unsafe.Pointer(external)) {
-		t.Error("Owns should return false for external pointer")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := res.IsPow2(tc.in); got != tc.want {
+				t.Errorf("IsPow2(%d) = %t, want %t", tc.in, got, tc.want)
+			}
+		})
 	}
 }
 
-// TestResDelete tests cleanup
-func TestRes_Delete(t *testing.T) {
-	r := res.NewRes(4096)
-
-	ptr1 := r.Alloc(100, 8)
-	if ptr1 == nil {
-		t.Fatal("Alloc returned nil")
+// TestPage checks that a page reports the bounds it was mapped with and stops
+// claiming pointers once released.
+//
+// Revisions:
+//   - 2025-12-31 18:33: initial creation
+func TestPage(t *testing.T) {
+	page, err := res.NewPage(res.PAGE_SIZE)
+	if err != nil {
+		t.Fatalf("NewPage: %v", err)
 	}
 
-	r.Delete()
+	if page.Size() < res.PAGE_SIZE {
+		t.Errorf("Size = %d, want at least %d", page.Size(), res.PAGE_SIZE)
+	}
 
-	// After delete, should not own previously allocated memory
-	if r.Owns(ptr1) {
-		t.Error("Owns should return false after Delete")
+	if !page.Contains(page.Start()) {
+		t.Error("page does not contain its own start")
+	}
+
+	if page.Contains(page.End()) {
+		t.Error("page contains the address one past its end")
+	}
+
+	start := page.Start()
+	if err := page.Release(); err != nil {
+		t.Fatalf("Release: %v", err)
+	}
+
+	if page.Contains(start) {
+		t.Error("released page still claims its old start")
+	}
+}
+
+// TestPageTableFind checks that a table finds the page holding a pointer and
+// rejects one from elsewhere.
+//
+// Revisions:
+//   - 2025-12-31 18:33: initial creation
+func TestPageTableFind(t *testing.T) {
+	table := res.NewPageTable()
+
+	defer func() {
+		if err := table.Delete(); err != nil {
+			t.Errorf("Delete: %v", err)
+		}
+	}()
+
+	const pages = 8
+
+	for range pages {
+		if _, err := table.New(res.PAGE_SIZE); err != nil {
+			t.Fatalf("New: %v", err)
+		}
+	}
+
+	if table.Len() != pages {
+		t.Errorf("Len = %d, want %d", table.Len(), pages)
+	}
+
+	if table.Size() < pages*res.PAGE_SIZE {
+		t.Errorf("Size = %d, want at least %d", table.Size(), pages*res.PAGE_SIZE)
+	}
+
+	page, err := table.New(res.PAGE_SIZE)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	if !table.Owns(page.Ptr()) {
+		t.Error("table does not own a page it mapped")
+	}
+
+	outside := new(int)
+	if table.Owns(unsafe.Pointer(outside)) {
+		t.Error("table claims a heap pointer")
+	}
+}
+
+// TestPageTableDeleteEmpties checks that Delete releases everything and leaves
+// the table claiming nothing.
+//
+// Revisions:
+//   - 2025-12-31 18:33: initial creation
+func TestPageTableDeleteEmpties(t *testing.T) {
+	table := res.NewPageTable()
+
+	page, err := table.New(res.PAGE_SIZE)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	start := page.Start()
+
+	if err := table.Delete(); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+
+	if table.Len() != 0 || table.Size() != 0 {
+		t.Errorf(
+			"after Delete: Len = %d, Size = %d, want 0 and 0",
+			table.Len(),
+			table.Size(),
+		)
+	}
+
+	if page.Contains(start) {
+		t.Error("page released by Delete still claims its old start")
+	}
+}
+
+// TestBumpAllocAlignment checks that every alignment a caller can ask for is
+// honoured, including one larger than the value being stored.
+//
+// Revisions:
+//   - 2025-12-31 18:33: initial creation
+func TestBumpAllocAlignment(t *testing.T) {
+	bump := res.NewBump(res.PAGE_SIZE)
+
+	defer func() {
+		if err := bump.Delete(); err != nil {
+			t.Errorf("Delete: %v", err)
+		}
+	}()
+
+	for _, align := range []uint64{1, 2, 4, 8, 16, 32, 64, 128} {
+		t.Run(fmt.Sprintf("align %d", align), func(t *testing.T) {
+			// One byte at a time in between, so the cursor is left at an odd
+			// offset and the alignment has real work to do.
+			_ = bump.Alloc(1, 1)
+
+			ptr := bump.Alloc(8, align)
+			if uintptr(ptr)%uintptr(align) != 0 {
+				t.Errorf(
+					"Alloc(8, %d) returned %p, which is not %d-aligned",
+					align,
+					ptr,
+					align,
+				)
+			}
+		})
+	}
+}
+
+// TestBumpAllocDistinct checks that separate allocations never overlap.
+//
+// Revisions:
+//   - 2025-12-31 18:33: initial creation
+func TestBumpAllocDistinct(t *testing.T) {
+	bump := res.NewBump(res.PAGE_SIZE)
+
+	defer func() {
+		if err := bump.Delete(); err != nil {
+			t.Errorf("Delete: %v", err)
+		}
+	}()
+
+	const count = 4096
+
+	seen := make(map[uintptr]bool, count)
+
+	for i := range count {
+		ptr := bump.Alloc(64, 8)
+		if seen[uintptr(ptr)] {
+			t.Fatalf("allocation %d repeated address %p", i, ptr)
+		}
+
+		seen[uintptr(ptr)] = true
+
+		if !bump.Owns(ptr) {
+			t.Fatalf("allocation %d is not owned by the allocator that made it", i)
+		}
+	}
+}
+
+// TestBumpGrowsGeometrically checks that a working set much larger than the
+// first chunk costs a handful of mappings rather than one per chunk's worth.
+//
+// Revisions:
+//   - 2025-12-31 18:33: initial creation
+func TestBumpGrowsGeometrically(t *testing.T) {
+	bump := res.NewBump(res.PAGE_SIZE)
+
+	defer func() {
+		if err := bump.Delete(); err != nil {
+			t.Errorf("Delete: %v", err)
+		}
+	}()
+
+	const (
+		total   = 4 << 20
+		perCall = 1024
+		limit   = 16
+	)
+
+	for range total / perCall {
+		_ = bump.Alloc(perCall, 8)
+	}
+
+	if bump.Mappings() > limit {
+		t.Errorf(
+			"%d bytes took %d mappings, want at most %d",
+			total,
+			bump.Mappings(),
+			limit,
+		)
 	}
 }

@@ -1,4 +1,4 @@
-package test
+package arena_test
 
 import (
 	"testing"
@@ -8,6 +8,10 @@ import (
 	"github.com/thebagchi/arena-go/alloc"
 )
 
+// TestAppend covers append.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestAppend(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1024 * 4096))
 	defer a.Delete()
@@ -22,9 +26,11 @@ func TestAppend(t *testing.T) {
 	if len(slice) != 4 {
 		t.Errorf("Expected length 4, got %d", len(slice))
 	}
+
 	if cap(slice) != 4 {
 		t.Errorf("Expected capacity 4, got %d", cap(slice))
 	}
+
 	expected := []int{1, 2, 3, 4}
 	for i, v := range expected {
 		if slice[i] != v {
@@ -37,6 +43,7 @@ func TestAppend(t *testing.T) {
 	if len(slice) != 7 {
 		t.Errorf("Expected length 7 after growth, got %d", len(slice))
 	}
+
 	if slice[4] != 5 || slice[5] != 6 || slice[6] != 7 {
 		t.Errorf("Growth append failed: got %v", slice)
 	}
@@ -48,6 +55,10 @@ func TestAppend(t *testing.T) {
 	}
 }
 
+// TestAppendStrings covers append strings.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestAppendStrings(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1024 * 4096))
 	defer a.Delete()
@@ -59,6 +70,7 @@ func TestAppendStrings(t *testing.T) {
 	if len(slice) != 3 {
 		t.Errorf("Expected length 3, got %d", len(slice))
 	}
+
 	expected := []string{"hello", "world", "arena"}
 	for i, v := range expected {
 		if slice[i] != v {
@@ -67,6 +79,10 @@ func TestAppendStrings(t *testing.T) {
 	}
 }
 
+// TestOwns covers owns.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestOwns(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1024 * 4096))
 	defer a.Delete()
@@ -105,19 +121,26 @@ func TestOwns(t *testing.T) {
 	}
 }
 
+// TestPtr covers ptr.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestPtr(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1024 * 4096))
 	defer a.Delete()
 
 	// Test with int
 	value := 42
+
 	ptr := arena.Ptr(a, value)
 	if ptr == nil {
 		t.Fatal("Ptr returned nil")
 	}
+
 	if *ptr != 42 {
 		t.Errorf("Expected *ptr = 42, got %d", *ptr)
 	}
+
 	if !arena.OwnsPtr(a, ptr) {
 		t.Error("Ptr should allocate in arena")
 	}
@@ -137,20 +160,25 @@ func TestPtr(t *testing.T) {
 		Name string
 		Age  int
 	}
+
 	person := Person{Name: "Alice", Age: 30}
+
 	personPtr := arena.Ptr(a, person)
 	if personPtr == nil {
 		t.Fatal("Ptr returned nil for struct")
 	}
+
 	if personPtr.Name != "Alice" || personPtr.Age != 30 {
 		t.Errorf("Expected Person{Alice, 30}, got %+v", *personPtr)
 	}
+
 	if !arena.OwnsPtr(a, personPtr) {
 		t.Error("Ptr should allocate struct in arena")
 	}
 
 	// Test with string
 	str := "hello"
+
 	strPtr := arena.Ptr(a, str)
 	if *strPtr != "hello" {
 		t.Errorf("Expected string 'hello', got '%s'", *strPtr)
@@ -158,10 +186,12 @@ func TestPtr(t *testing.T) {
 
 	// Test with slice (copies the slice header, not the backing array)
 	slice := []int{1, 2, 3}
+
 	slicePtr := arena.Ptr(a, slice)
 	if len(*slicePtr) != 3 {
 		t.Errorf("Expected slice length 3, got %d", len(*slicePtr))
 	}
+
 	if (*slicePtr)[0] != 1 || (*slicePtr)[1] != 2 || (*slicePtr)[2] != 3 {
 		t.Errorf("Expected slice [1 2 3], got %v", *slicePtr)
 	}
@@ -169,6 +199,10 @@ func TestPtr(t *testing.T) {
 
 // ===== ALLOC TESTS =====
 
+// TestAlloc covers alloc.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestAlloc(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1024 * 4096))
 	defer a.Delete()
@@ -178,13 +212,16 @@ func TestAlloc(t *testing.T) {
 	if intPtr == nil {
 		t.Fatal("Alloc returned nil for int")
 	}
+
 	if *intPtr != 0 {
 		t.Errorf("Expected zero-initialized value, got %d", *intPtr)
 	}
+
 	*intPtr = 99
 	if *intPtr != 99 {
 		t.Errorf("Expected 99, got %d", *intPtr)
 	}
+
 	if !arena.OwnsPtr(a, intPtr) {
 		t.Error("Alloc should allocate in arena")
 	}
@@ -193,20 +230,28 @@ func TestAlloc(t *testing.T) {
 	type Point struct {
 		X, Y int
 	}
+
 	pointPtr := arena.Alloc[Point](a)
 	if pointPtr == nil {
 		t.Fatal("Alloc returned nil for struct")
 	}
+
 	if pointPtr.X != 0 || pointPtr.Y != 0 {
 		t.Errorf("Expected {0, 0}, got {%d, %d}", pointPtr.X, pointPtr.Y)
 	}
+
 	pointPtr.X = 10
+
 	pointPtr.Y = 20
 	if pointPtr.X != 10 || pointPtr.Y != 20 {
 		t.Errorf("Expected {10, 20}, got {%d, %d}", pointPtr.X, pointPtr.Y)
 	}
 }
 
+// TestAllocMultiple covers alloc multiple.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestAllocMultiple(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1024 * 4096))
 	defer a.Delete()
@@ -232,6 +277,10 @@ func TestAllocMultiple(t *testing.T) {
 
 // ===== MAKE SLICE TESTS =====
 
+// TestMakeSlice covers make slice.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestMakeSlice(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1024 * 4096))
 	defer a.Delete()
@@ -240,6 +289,7 @@ func TestMakeSlice(t *testing.T) {
 	if len(slice) != 5 {
 		t.Errorf("Expected length 5, got %d", len(slice))
 	}
+
 	if cap(slice) != 10 {
 		t.Errorf("Expected capacity 10, got %d", cap(slice))
 	}
@@ -255,6 +305,7 @@ func TestMakeSlice(t *testing.T) {
 	for i := 0; i < len(slice); i++ {
 		slice[i] = i * 10
 	}
+
 	for i := 0; i < len(slice); i++ {
 		if slice[i] != i*10 {
 			t.Errorf("Expected slice[%d] = %d, got %d", i, i*10, slice[i])
@@ -262,6 +313,10 @@ func TestMakeSlice(t *testing.T) {
 	}
 }
 
+// TestMakeSliceCapacity covers make slice capacity.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestMakeSliceCapacity(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1024 * 4096))
 	defer a.Delete()
@@ -271,6 +326,7 @@ func TestMakeSliceCapacity(t *testing.T) {
 	if len(slice) != 2 {
 		t.Errorf("Expected length 2, got %d", len(slice))
 	}
+
 	if cap(slice) != 10 {
 		t.Errorf("Expected capacity 10, got %d", cap(slice))
 	}
@@ -283,6 +339,10 @@ func TestMakeSliceCapacity(t *testing.T) {
 	}
 }
 
+// TestMakeSliceZeroLength covers make slice zero length.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestMakeSliceZeroLength(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1024 * 4096))
 	defer a.Delete()
@@ -291,6 +351,7 @@ func TestMakeSliceZeroLength(t *testing.T) {
 	if len(slice) != 0 {
 		t.Errorf("Expected length 0, got %d", len(slice))
 	}
+
 	if cap(slice) != 10 {
 		t.Errorf("Expected capacity 10, got %d", cap(slice))
 	}
@@ -302,6 +363,10 @@ func TestMakeSliceZeroLength(t *testing.T) {
 	}
 }
 
+// TestMakeSliceLarge covers make slice large.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestMakeSliceLarge(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(10 * 4096))
 	defer a.Delete()
@@ -310,18 +375,24 @@ func TestMakeSliceLarge(t *testing.T) {
 	if len(slice) != 1000 {
 		t.Errorf("Expected length 1000, got %d", len(slice))
 	}
+
 	if cap(slice) != 2000 {
 		t.Errorf("Expected capacity 2000, got %d", cap(slice))
 	}
 
 	// Test some values
 	slice[0] = 42
+
 	slice[999] = 999
 	if slice[0] != 42 || slice[999] != 999 {
 		t.Errorf("Expected {42, ..., 999}, got {%d, ..., %d}", slice[0], slice[999])
 	}
 }
 
+// TestSliceOwnership covers slice ownership.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestSliceOwnership(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1024 * 4096))
 	defer a.Delete()
@@ -340,6 +411,10 @@ func TestSliceOwnership(t *testing.T) {
 
 // ===== MAKE STRING TESTS =====
 
+// TestMakeString covers make string.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestMakeString(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1024 * 4096))
 	defer a.Delete()
@@ -348,11 +423,16 @@ func TestMakeString(t *testing.T) {
 	if str != "hello world" {
 		t.Errorf("Expected 'hello world', got %q", str)
 	}
+
 	if !arena.OwnsString(a, str) {
 		t.Error("String should be owned by arena")
 	}
 }
 
+// TestMakeStringEmpty covers make string empty.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestMakeStringEmpty(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1024 * 4096))
 	defer a.Delete()
@@ -361,11 +441,16 @@ func TestMakeStringEmpty(t *testing.T) {
 	if str != "" {
 		t.Errorf("Expected empty string, got %q", str)
 	}
+
 	if arena.OwnsString(a, str) {
 		t.Error("Empty string should not be owned by arena")
 	}
 }
 
+// TestMakeStringUnicode covers make string unicode.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestMakeStringUnicode(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1024 * 4096))
 	defer a.Delete()
@@ -374,11 +459,16 @@ func TestMakeStringUnicode(t *testing.T) {
 	if str != "Hello 世界 🚀" {
 		t.Errorf("Expected 'Hello 世界 🚀', got %q", str)
 	}
+
 	if !arena.OwnsString(a, str) {
 		t.Error("Unicode string should be owned by arena")
 	}
 }
 
+// TestMakeStringLarge covers make string large.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestMakeStringLarge(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(10 * 4096))
 	defer a.Delete()
@@ -392,9 +482,11 @@ func TestMakeStringLarge(t *testing.T) {
 	if str != largeStr {
 		t.Error("Large string content mismatch")
 	}
+
 	if len(str) != 1001 {
 		t.Errorf("Expected length 1001, got %d", len(str))
 	}
+
 	if !arena.OwnsString(a, str) {
 		t.Error("Large string should be owned by arena")
 	}
@@ -402,6 +494,10 @@ func TestMakeStringLarge(t *testing.T) {
 
 // ===== CLONE TESTS =====
 
+// TestCloneObject covers clone object.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestCloneObject(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1024 * 4096))
 	defer a.Delete()
@@ -422,9 +518,11 @@ func TestCloneObject(t *testing.T) {
 	if heapObj == nil {
 		t.Fatal("CloneObject returned nil")
 	}
+
 	if heapObj == arenaObj {
 		t.Error("Clone should create a different object")
 	}
+
 	if heapObj.Value != 42 || heapObj.Name != "test" {
 		t.Errorf("Expected {42, test}, got {%d, %s}", heapObj.Value, heapObj.Name)
 	}
@@ -436,14 +534,23 @@ func TestCloneObject(t *testing.T) {
 	}
 }
 
+// TestCloneObjectNil covers clone object nil.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestCloneObjectNil(t *testing.T) {
 	var nilPtr *int
+
 	cloned := arena.CloneObject(nilPtr)
 	if cloned != nil {
 		t.Error("CloneObject of nil should return nil")
 	}
 }
 
+// TestCloneSlice covers clone slice.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestCloneSlice(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1024 * 4096))
 	defer a.Delete()
@@ -462,12 +569,18 @@ func TestCloneSlice(t *testing.T) {
 	// Verify content
 	for i := 0; i < len(heapSlice); i++ {
 		if heapSlice[i] != arenaSlice[i] {
-			t.Errorf("Expected heapSlice[%d] = %d, got %d", i, arenaSlice[i], heapSlice[i])
+			t.Errorf(
+				"Expected heapSlice[%d] = %d, got %d",
+				i,
+				arenaSlice[i],
+				heapSlice[i],
+			)
 		}
 	}
 
 	// Verify independence
 	heapSlice[0] = 999
+
 	if arenaSlice[0] != 0 {
 		t.Error("Modifying clone should not affect original")
 	}
@@ -478,14 +591,23 @@ func TestCloneSlice(t *testing.T) {
 	}
 }
 
+// TestCloneSliceEmpty covers clone slice empty.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestCloneSliceEmpty(t *testing.T) {
 	emptySlice := []int{}
+
 	cloned := arena.CloneSlice(emptySlice)
 	if cloned != nil {
 		t.Error("CloneSlice of empty slice should return nil")
 	}
 }
 
+// TestCloneString covers clone string.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestCloneString(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1024 * 4096))
 	defer a.Delete()
@@ -503,6 +625,10 @@ func TestCloneString(t *testing.T) {
 	}
 }
 
+// TestCloneStringEmpty covers clone string empty.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestCloneStringEmpty(t *testing.T) {
 	cloned := arena.CloneString("")
 	if cloned != "" {
@@ -512,6 +638,10 @@ func TestCloneStringEmpty(t *testing.T) {
 
 // ===== DELETE TESTS =====
 
+// TestDeleteObject covers delete object.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestDeleteObject(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1024 * 4096))
 	defer a.Delete()
@@ -523,6 +653,10 @@ func TestDeleteObject(t *testing.T) {
 	arena.DeleteObject(a, obj)
 }
 
+// TestDeleteSlice covers delete slice.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestDeleteSlice(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1024 * 4096))
 	defer a.Delete()
@@ -536,6 +670,10 @@ func TestDeleteSlice(t *testing.T) {
 	arena.DeleteSlice(a, slice)
 }
 
+// TestDeleteString covers delete string.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestDeleteString(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1024 * 4096))
 	defer a.Delete()
@@ -548,6 +686,10 @@ func TestDeleteString(t *testing.T) {
 
 // ===== APPEND EDGE CASES =====
 
+// TestAppendGrowth covers append growth.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestAppendGrowth(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1024 * 4096))
 	defer a.Delete()
@@ -574,6 +716,10 @@ func TestAppendGrowth(t *testing.T) {
 	}
 }
 
+// TestAppendMultipleTypes covers append multiple types.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestAppendMultipleTypes(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1024 * 4096))
 	defer a.Delete()
@@ -589,14 +735,20 @@ func TestAppendMultipleTypes(t *testing.T) {
 	if len(slice) != 2 {
 		t.Errorf("Expected length 2, got %d", len(slice))
 	}
+
 	if slice[0].ID != 1 || slice[0].Value != "one" {
 		t.Errorf("Expected {1, one}, got {%d, %s}", slice[0].ID, slice[0].Value)
 	}
+
 	if slice[1].ID != 2 || slice[1].Value != "two" {
 		t.Errorf("Expected {2, two}, got {%d, %s}", slice[1].ID, slice[1].Value)
 	}
 }
 
+// TestAppendToZeroCapacity covers append to zero capacity.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestAppendToZeroCapacity(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1024 * 4096))
 	defer a.Delete()
@@ -607,6 +759,7 @@ func TestAppendToZeroCapacity(t *testing.T) {
 	if len(slice) != 3 {
 		t.Errorf("Expected length 3, got %d", len(slice))
 	}
+
 	if slice[0] != 1 || slice[1] != 2 || slice[2] != 3 {
 		t.Errorf("Expected [1, 2, 3], got %v", slice)
 	}
@@ -614,6 +767,10 @@ func TestAppendToZeroCapacity(t *testing.T) {
 
 // ===== INTEGRATION TESTS =====
 
+// TestAllocationLifecycle covers allocation lifecycle.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestAllocationLifecycle(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1024 * 4096))
 	defer a.Delete()
@@ -649,6 +806,10 @@ func TestAllocationLifecycle(t *testing.T) {
 	arena.DeleteObject(a, person)
 }
 
+// TestMixedAllocations covers mixed allocations.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestMixedAllocations(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1024 * 4096))
 	defer a.Delete()
@@ -667,17 +828,24 @@ func TestMixedAllocations(t *testing.T) {
 	if !arena.OwnsPtr(a, intPtr) {
 		t.Error("intPtr should be owned by arena")
 	}
+
 	if !arena.OwnsSlice(a, strSlice) {
 		t.Error("strSlice should be owned by arena")
 	}
+
 	if !arena.OwnsString(a, arenaStr) {
 		t.Error("arenaStr should be owned by arena")
 	}
+
 	if !arena.OwnsSlice(a, intSlice) {
 		t.Error("intSlice should be owned by arena")
 	}
 }
 
+// TestArenaReset covers arena reset.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestArenaReset(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1024 * 4096))
 
@@ -702,6 +870,10 @@ func TestArenaReset(t *testing.T) {
 	a.Delete()
 }
 
+// TestInterleavedOperations covers interleaved operations.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestInterleavedOperations(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1024 * 4096))
 	defer a.Delete()
@@ -719,11 +891,16 @@ func TestInterleavedOperations(t *testing.T) {
 	if len(slice) != 4 {
 		t.Errorf("Expected length 4, got %d", len(slice))
 	}
+
 	if str != "test" {
 		t.Errorf("Expected 'test', got %q", str)
 	}
 }
 
+// TestLargeStructAllocation covers large struct allocation.
+//
+// Revisions:
+//   - 2026-01-01 00:03: initial creation
 func TestLargeStructAllocation(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1024 * 4096))
 	defer a.Delete()
@@ -741,6 +918,7 @@ func TestLargeStructAllocation(t *testing.T) {
 	if obj.Data[0] != 42 || obj.Data[999] != 999 {
 		t.Error("Large struct data corruption")
 	}
+
 	if !arena.OwnsPtr(a, obj) {
 		t.Error("Large struct should be owned by arena")
 	}

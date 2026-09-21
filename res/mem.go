@@ -1,52 +1,69 @@
-// Package arena provides memory allocation utilities for arena-based allocators.
-// This package handles low-level memory operations using system calls for efficient
-// memory management outside of Go's garbage collector.
+// Package res provides the raw memory every arena allocator is built on, and the
+// two ways this module divides it up: a PageTable that owns mapped pages and
+// answers ownership questions, and a Bump cursor that hands out bytes from them.
+//
+// Memory here comes from mmap and lives outside Go's garbage collector. A Go
+// pointer written into it does not keep its target alive, so anything stored in
+// this memory must either contain no pointers or point back into the same arena.
+// The arena package documentation states the rule in full.
 package res
 
 import (
+	"fmt"
 	"syscall"
 )
 
-var PAGE_SIZE int
+const (
+	// MMAP_NO_FILE is the descriptor for an anonymous mapping.
+	MMAP_NO_FILE = -1
+	// MMAP_NO_OFFSET is the file offset for an anonymous mapping.
+	MMAP_NO_OFFSET = 0
+	// MMAP_PROT is read/write, which is all arena memory ever needs.
+	MMAP_PROT = syscall.PROT_READ | syscall.PROT_WRITE
+	// MMAP_FLAGS keeps the mapping private to this process and file-free.
+	MMAP_FLAGS = syscall.MAP_PRIVATE | syscall.MAP_ANONYMOUS
+)
 
-func init() {
+var (
+	// PAGE_SIZE is the operating system page size, read once at process start.
 	PAGE_SIZE = syscall.Getpagesize()
-}
+)
 
-// MakePages allocates memory pages using mmap.
-// It rounds up the requested size to the nearest page boundary to ensure
-// proper alignment and prevent partial page allocations.
+// MakePages maps size bytes of anonymous memory, rounded up to a page boundary.
 //
-// Parameters:
-//   - size: The minimum number of bytes to allocate. Will be rounded up to page size.
+// The kernel zeroes a fresh mapping, which is what lets the bump allocator skip
+// zeroing memory it has never handed out. The result is invisible to Go's
+// garbage collector and must be handed back with ReleasePages.
 //
-// Returns:
-//   - []byte: A byte slice backed by the allocated memory pages.
-//
-// Panics:
-//   - If mmap fails to allocate the requested memory.
-//
-// Note: The allocated memory is not managed by Go's GC and must be explicitly
-// released using ReleasePages to avoid memory leaks.
-func MakePages(size int) []byte {
-	size = ((size + PAGE_SIZE - 1) / PAGE_SIZE) * PAGE_SIZE
-	data, err := syscall.Mmap(-1, 0, size, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_PRIVATE|syscall.MAP_ANONYMOUS)
+// Revisions:
+//   - 2025-12-09 22:38: initial creation
+func MakePages(size int) ([]byte, error) {
+	rounded := RoundUp(size, PAGE_SIZE)
+
+	data, err := syscall.Mmap(MMAP_NO_FILE, MMAP_NO_OFFSET, rounded, MMAP_PROT, MMAP_FLAGS)
 	if err != nil {
-		panic(err)
+		return nil, fmt.Errorf("res: mmap %d bytes: %w", rounded, err)
 	}
-	return data
+
+	return data, nil
 }
 
-// ReleasePages frees memory pages allocated with MakePages.
-// This function must be called to release memory allocated by MakePages,
-// otherwise the memory will leak as it's not managed by Go's garbage collector.
+// ReleasePages unmaps pages obtained from MakePages.
 //
-// Parameters:
-//   - data: The byte slice returned by MakePages. Must be the exact slice
-//     returned by MakePages, not a subslice.
+// It returns the unmap error rather than discarding it: a failed munmap leaks
+// the mapping for the life of the process, which is worth reporting even though
+// no caller can repair it.
 //
-// Note: After calling ReleasePages, the data slice becomes invalid and
-// should not be used. Attempting to access it may cause undefined behavior.
-func ReleasePages(data []byte) {
-	syscall.Munmap(data)
+// Revisions:
+//   - 2025-12-09 22:38: initial creation
+func ReleasePages(data []byte) error {
+	if len(data) == 0 {
+		return nil
+	}
+
+	if err := syscall.Munmap(data); err != nil {
+		return fmt.Errorf("res: munmap %d bytes: %w", len(data), err)
+	}
+
+	return nil
 }

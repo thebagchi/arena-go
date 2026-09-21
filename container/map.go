@@ -3,315 +3,236 @@ package container
 import (
 	"hash/maphash"
 	"iter"
+	"reflect"
 	"sync"
 	"unsafe"
 
 	arena "github.com/thebagchi/arena-go"
+	"github.com/thebagchi/arena-go/res"
 )
 
-const INITIAL_BUCKET_COUNT = 16 // Initial number of buckets in the hash map
+const (
+	// INITIAL_BUCKET_COUNT is the bucket array size a new map starts with.
+	INITIAL_BUCKET_COUNT = 16
+	// LOAD_NUMERATOR is the numerator of the load factor at which the bucket
+	// array doubles.
+	LOAD_NUMERATOR = 3
+	// LOAD_DENOMINATOR is its denominator, so the two together are three
+	// quarters full.
+	LOAD_DENOMINATOR = 4
+)
 
-// Map is a high-performance, zero-GC hash map that lives entirely in arena memory.
-// Uses separate chaining for collision resolution, eliminating clustering issues.
-// Thread-safe: All operations (Get, Set, Delete, Range) are protected by an RWMutex.
-// Multiple goroutines can safely call Get concurrently, while Set/Delete operations are serialized.
+// Map is a hash map whose entries and bucket array live in an arena, using
+// separate chaining.
+//
+// String keys and string values are copied into the arena as they are stored.
+// Arena memory is not scanned by the garbage collector, so a heap string kept
+// only by a map entry would be collected and its bytes reused underneath the
+// map; copying is what makes the common case safe. A key or value of any other
+// pointer-bearing type is the caller's to copy, as the package documentation
+// says.
+//
+// Safe for concurrent use: reads share the lock, writes take it exclusively.
 type Map[K comparable, V any] struct {
 	mtx     sync.RWMutex
 	arena   *arena.Arena
-	buckets *Vec[*entry[K, V]] // arena-backed bucket array (array of pointers to chain heads)
-	count   int
-	cap     int
-	mask    uint64
+	buckets *Vec[*_Entry[K, V]]
 	seed    maphash.Seed
+	count   int
+	mask    uint64
+	keyStr  bool
+	valStr  bool
 }
 
-// entry is a node in the hash chain (linked list)
-type entry[K comparable, V any] struct {
+// _Entry is one link in a bucket's chain.
+type _Entry[K comparable, V any] struct {
+	next *_Entry[K, V]
 	hash uint64
 	key  K
 	val  V
-	next *entry[K, V]
-	// Note: Cache alignment is automatic here due to alignment of K and V types
 }
 
-// NewMap creates a new Map with separate chaining for collision resolution
+// NewMap returns an empty map backed by the arena.
+//
+// Revisions:
+//   - 2025-12-11 23:51: initial creation
 func NewMap[K comparable, V any](a *arena.Arena) *Map[K, V] {
-	// Create arena-backed vec for buckets
-	buckets := NewVec[*entry[K, V]](a)
+	buckets := NewVec[*_Entry[K, V]](a)
+	buckets.Resize(INITIAL_BUCKET_COUNT)
 
-	// Initialize with nil pointers
-	for range INITIAL_BUCKET_COUNT {
-		buckets.AppendOne(nil)
-	}
-
-	m := &Map[K, V]{
+	return &Map[K, V]{
 		arena:   a,
 		buckets: buckets,
-		cap:     INITIAL_BUCKET_COUNT,
-		mask:    uint64(INITIAL_BUCKET_COUNT - 1),
 		seed:    maphash.MakeSeed(),
+		mask:    INITIAL_BUCKET_COUNT - 1,
+		keyStr:  _IsString[K](),
+		valStr:  _IsString[V](),
 	}
-	return m
 }
 
-// hash function using maphash for better performance and security
-func (m *Map[K, V]) hash(key K) uint64 {
-	var h maphash.Hash
-	h.SetSeed(m.seed)
-
-	// Write key data to hasher
-	switch v := any(key).(type) {
-	case string:
-		h.WriteString(v)
-	case int:
-		writeBytes(&h, unsafe.Pointer(&v), unsafe.Sizeof(v))
-	case int8:
-		writeBytes(&h, unsafe.Pointer(&v), unsafe.Sizeof(v))
-	case int16:
-		writeBytes(&h, unsafe.Pointer(&v), unsafe.Sizeof(v))
-	case int32:
-		writeBytes(&h, unsafe.Pointer(&v), unsafe.Sizeof(v))
-	case int64:
-		writeBytes(&h, unsafe.Pointer(&v), unsafe.Sizeof(v))
-	case uint:
-		writeBytes(&h, unsafe.Pointer(&v), unsafe.Sizeof(v))
-	case uint8:
-		writeBytes(&h, unsafe.Pointer(&v), unsafe.Sizeof(v))
-	case uint16:
-		writeBytes(&h, unsafe.Pointer(&v), unsafe.Sizeof(v))
-	case uint32:
-		writeBytes(&h, unsafe.Pointer(&v), unsafe.Sizeof(v))
-	case uint64:
-		writeBytes(&h, unsafe.Pointer(&v), unsafe.Sizeof(v))
-	case uintptr:
-		writeBytes(&h, unsafe.Pointer(&v), unsafe.Sizeof(v))
-	default:
-		// For other comparable types, use their memory representation
-		writeBytes(&h, unsafe.Pointer(&key), unsafe.Sizeof(key))
-	}
-
-	return h.Sum64()
-}
-
-// writeBytes writes raw bytes to the hasher
-func writeBytes(h *maphash.Hash, ptr unsafe.Pointer, size uintptr) {
-	data := unsafe.Slice((*byte)(ptr), size)
-	h.Write(data)
-}
-
-// Set inserts or updates a key-value pair using separate chaining
+// Set inserts or replaces the value stored under key.
+//
+// Revisions:
+//   - 2025-12-11 23:51: initial creation
 func (m *Map[K, V]) Set(key K, value V) {
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
 
-	// Grow when load factor > 0.75
-	if m.count > m.cap*3/4 {
-		m.grow()
+	if m.count > m._Buckets()*LOAD_NUMERATOR/LOAD_DENOMINATOR {
+		m._Grow()
 	}
 
-	hash := m.hash(key)
-	index := hash & m.mask
-	head, ok := m.buckets.Get(int(index))
-	if !ok {
-		panic("arena map: bucket index out of bounds")
+	if m.valStr {
+		m._Intern(unsafe.Pointer(&value))
 	}
 
-	// Check if key exists in chain and update
-	e := head
-	for e != nil {
-		if e.hash == hash && e.key == key {
-			e.val = value
+	var (
+		hash  = maphash.Comparable(m.seed, key)
+		index = int(hash & m.mask)
+		head  = m.buckets.At(index)
+	)
+
+	for entry := head; entry != nil; entry = entry.next {
+		if entry.hash == hash && entry.key == key {
+			entry.val = value
+
 			return
 		}
-		e = e.next
 	}
 
-	// Key not found, allocate new entry and prepend to chain
-	// Note: entries are freed immediately on Delete/Reset via arena.Remove()
-	item := (*entry[K, V])(m.arena.Alloc(uint64(unsafe.Sizeof(entry[K, V]{})), 8))
-
-	*item = entry[K, V]{
-		hash: hash,
-		key:  key,
-		val:  value,
-		next: head,
+	if m.keyStr {
+		m._Intern(unsafe.Pointer(&key))
 	}
 
-	m.buckets.Set(int(index), item)
-	m.count++
+	entry := arena.Alloc[_Entry[K, V]](m.arena)
+	entry.hash, entry.key, entry.val, entry.next = hash, key, value, head
+
+	m.buckets.Set(index, entry)
+	m.count = m.count + 1
 }
 
-// Get returns value and true if found
+// Get returns the value stored under key, reporting whether there was one.
+//
+// Revisions:
+//   - 2025-12-11 23:51: initial creation
 func (m *Map[K, V]) Get(key K) (V, bool) {
 	m.mtx.RLock()
 	defer m.mtx.RUnlock()
 
-	if m.cap == 0 {
-		var zero V
-		return zero, false
-	}
+	var (
+		hash  = maphash.Comparable(m.seed, key)
+		index = int(hash & m.mask)
+	)
 
-	hash := m.hash(key)
-	index := hash & m.mask
-	e, ok := m.buckets.Get(int(index))
-	if !ok {
-		panic("arena map: bucket index out of bounds")
-	}
-
-	// Walk the chain
-	for e != nil {
-		if e.hash == hash && e.key == key {
-			return e.val, true
+	for entry := m.buckets.At(index); entry != nil; entry = entry.next {
+		if entry.hash == hash && entry.key == key {
+			return entry.val, true
 		}
-		e = e.next
 	}
 
 	var zero V
+
 	return zero, false
 }
 
-// Delete removes a key from the chain and frees the entry memory
+// Contains reports whether key is present.
+//
+// Revisions:
+//   - 2025-12-11 23:51: initial creation
+func (m *Map[K, V]) Contains(key K) bool {
+	_, found := m.Get(key)
+
+	return found
+}
+
+// Delete removes key and frees its entry.
+//
+// Revisions:
+//   - 2025-12-11 23:51: initial creation
 func (m *Map[K, V]) Delete(key K) {
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
 
-	if m.cap == 0 {
+	var (
+		hash  = maphash.Comparable(m.seed, key)
+		index = int(hash & m.mask)
+		prev  *_Entry[K, V]
+	)
+
+	for entry := m.buckets.At(index); entry != nil; entry = entry.next {
+		if entry.hash != hash || entry.key != key {
+			prev = entry
+
+			continue
+		}
+
+		if prev == nil {
+			m.buckets.Set(index, entry.next)
+		} else {
+			prev.next = entry.next
+		}
+
+		m.arena.Remove(unsafe.Pointer(entry))
+		m.count = m.count - 1
+
 		return
 	}
-
-	hash := m.hash(key)
-	index := hash & m.mask
-
-	// Walk the chain and remove the matching entry
-	var prev *entry[K, V]
-	curr, ok := m.buckets.Get(int(index))
-	if !ok {
-		panic("arena map: bucket index out of bounds")
-	}
-
-	for curr != nil {
-		if curr.hash == hash && curr.key == key {
-			// Found it - unlink from chain
-			if prev == nil {
-				// Removing head of chain
-				m.buckets.Set(int(index), curr.next)
-			} else {
-				// Removing from middle/end of chain
-				prev.next = curr.next
-			}
-			// Free the entry memory via arena
-			m.arena.Remove(unsafe.Pointer(curr))
-			m.count--
-			return
-		}
-		prev = curr
-		curr = curr.next
-	}
 }
 
-// Range calls f for each entry in all chains
-func (m *Map[K, V]) Range(f func(K, V) bool) {
-	m.mtx.RLock()
-	defer m.mtx.RUnlock()
-
-	for i := range m.cap {
-		e, ok := m.buckets.Get(i)
-		if !ok {
-			panic("arena map: bucket index out of bounds")
-		}
-		// Walk the chain at this bucket
-		for e != nil {
-			if !f(e.key, e.val) {
-				return
-			}
-			e = e.next
-		}
-	}
-}
-
-// Len returns number of entries
+// Len returns the number of entries.
+//
+// Revisions:
+//   - 2025-12-11 23:51: initial creation
 func (m *Map[K, V]) Len() int {
 	m.mtx.RLock()
 	defer m.mtx.RUnlock()
+
 	return m.count
 }
 
-// grow doubles the bucket array and rehashes all entries
-func (m *Map[K, V]) grow() {
-	obkt := m.buckets.Slice()
-	ocap := m.cap
+// Range calls visit for each entry until it returns false.
+//
+// Revisions:
+//   - 2025-12-11 23:51: initial creation
+func (m *Map[K, V]) Range(visit func(K, V) bool) {
+	m.mtx.RLock()
+	defer m.mtx.RUnlock()
 
-	ncap := ocap * 2
-	if ncap < INITIAL_BUCKET_COUNT {
-		ncap = INITIAL_BUCKET_COUNT
-	}
-
-	// Allocate new bucket array using Vec
-	nbkt := NewVec[*entry[K, V]](m.arena)
-
-	// Initialize with nil pointers
-	for range ncap {
-		nbkt.AppendOne(nil)
-	}
-
-	// Update map metadata
-	m.buckets = nbkt
-	m.cap = ncap
-	m.mask = uint64(ncap - 1)
-	ocount := m.count
-	m.count = 0
-
-	// Rehash all entries from old chains
-	for _, e := range obkt {
-		// Walk each chain
-		for e != nil {
-			next := e.next // Save next before we modify e.next
-
-			// Reinsert entry into new bucket array
-			index := e.hash & m.mask
-			head, ok := nbkt.Get(int(index))
-			if !ok {
-				panic("arena map: bucket index out of bounds during grow")
+	for _, head := range m.buckets.Slice() {
+		for entry := head; entry != nil; entry = entry.next {
+			if !visit(entry.key, entry.val) {
+				return
 			}
-			e.next = head
-			nbkt.Set(int(index), e)
-			m.count++
-
-			e = next
 		}
-	}
-
-	// Sanity check
-	if m.count != ocount {
-		panic("arena map: lost entries during grow")
 	}
 }
 
-// Reset frees all entries and clears the map while keeping capacity
+// Reset frees every entry and empties the map, keeping the bucket array.
+//
+// Revisions:
+//   - 2025-12-11 23:51: initial creation
 func (m *Map[K, V]) Reset() {
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
 
-	// Free all entry nodes
-	for i := range m.cap {
-		e, ok := m.buckets.Get(i)
-		if !ok {
-			panic("arena map: bucket index out of bounds")
+	buckets := m.buckets.Slice()
+	for i, head := range buckets {
+		for entry := head; entry != nil; {
+			next := entry.next
+			m.arena.Remove(unsafe.Pointer(entry))
+			entry = next
 		}
-		for e != nil {
-			next := e.next
-			m.arena.Remove(unsafe.Pointer(e))
-			e = next
-		}
-		m.buckets.Set(i, nil)
+
+		buckets[i] = nil
 	}
+
 	m.count = 0
 }
 
-// Clone returns a heap-allocated standard Go map with all entries from the Map.
-// The returned map is independent of the arena lifecycle and can be safely used
-// after the arena is deleted. Use this when you need to preserve map data beyond
-// the arena's lifetime.
+// Clone returns a heap map holding the same entries, which outlives the arena.
+//
+// Revisions:
+//   - 2025-12-11 23:51: initial creation
 func (m *Map[K, V]) Clone() map[K]V {
 	m.mtx.RLock()
 	defer m.mtx.RUnlock()
@@ -321,183 +242,176 @@ func (m *Map[K, V]) Clone() map[K]V {
 	}
 
 	result := make(map[K]V, m.count)
-	for i := range m.cap {
-		e, ok := m.buckets.Get(i)
-		if !ok {
-			panic("arena map: bucket index out of bounds")
-		}
-		// Walk the chain
-		for e != nil {
-			result[e.key] = e.val
-			e = e.next
+
+	for _, head := range m.buckets.Slice() {
+		for entry := head; entry != nil; entry = entry.next {
+			result[entry.key] = entry.val
 		}
 	}
+
 	return result
 }
 
-// -----------------------------
-// Iterator support
-// -----------------------------
-
-// Keys returns an iterator over all keys in the map
-// Example:
+// Keys returns an iterator over the keys.
 //
-//	m := arena.NewMap[string, int](a)
-//	m.Set("a", 1)
-//	m.Set("b", 2)
-//	for key := range m.Keys() {
-//	    fmt.Println(key)
-//	}
+// Revisions:
+//   - 2025-12-11 23:51: initial creation
 func (m *Map[K, V]) Keys() iter.Seq[K] {
 	return func(yield func(K) bool) {
-		m.mtx.RLock()
-		defer m.mtx.RUnlock()
-
-		for i := range m.cap {
-			e, ok := m.buckets.Get(i)
-			if !ok {
-				panic("arena map: bucket index out of bounds")
-			}
-			for e != nil {
-				if !yield(e.key) {
-					return
-				}
-				e = e.next
-			}
-		}
+		m.Range(func(key K, _ V) bool {
+			return yield(key)
+		})
 	}
 }
 
-// Values returns an iterator over all values in the map
-// Example:
+// Values returns an iterator over the values.
 //
-//	m := arena.NewMap[string, int](a)
-//	m.Set("a", 1)
-//	m.Set("b", 2)
-//	for val := range m.Values() {
-//	    fmt.Println(val)
-//	}
+// Revisions:
+//   - 2025-12-11 23:51: initial creation
 func (m *Map[K, V]) Values() iter.Seq[V] {
 	return func(yield func(V) bool) {
-		m.mtx.RLock()
-		defer m.mtx.RUnlock()
-
-		for i := range m.cap {
-			e, ok := m.buckets.Get(i)
-			if !ok {
-				panic("arena map: bucket index out of bounds")
-			}
-			for e != nil {
-				if !yield(e.val) {
-					return
-				}
-				e = e.next
-			}
-		}
+		m.Range(func(_ K, val V) bool {
+			return yield(val)
+		})
 	}
 }
 
-// All returns an iterator over all key-value pairs in the map
-// Example:
+// All returns an iterator over key and value pairs.
 //
-//	m := arena.NewMap[string, int](a)
-//	m.Set("a", 1)
-//	m.Set("b", 2)
-//	for key, val := range m.All() {
-//	    fmt.Printf("%s: %d\n", key, val)
-//	}
+// Revisions:
+//   - 2025-12-11 23:51: initial creation
 func (m *Map[K, V]) All() iter.Seq2[K, V] {
 	return func(yield func(K, V) bool) {
-		m.mtx.RLock()
-		defer m.mtx.RUnlock()
-
-		for i := range m.cap {
-			e, ok := m.buckets.Get(i)
-			if !ok {
-				panic("arena map: bucket index out of bounds")
-			}
-			for e != nil {
-				if !yield(e.key, e.val) {
-					return
-				}
-				e = e.next
-			}
-		}
+		m.Range(yield)
 	}
 }
 
-// MapIter provides pull-based iteration over map entries
-type MapIter[K comparable, V any] struct {
-	m       *Map[K, V]
-	index   int
-	current *entry[K, V]
-}
-
-// Iter returns a pull-based iterator for the map
-// Use Next() to pull key-value pairs one by one.
+// Iter returns a pull-based iterator over the entries.
 //
-// Example:
-//
-//	m := arena.NewMap[string, int](a)
-//	m.Set("a", 1)
-//	m.Set("b", 2)
-//
-//	iter := m.Iter()
-//	for key, val, ok := iter.Next(); ok; key, val, ok = iter.Next() {
-//	    fmt.Printf("%s: %d\n", key, val)
-//	}
+// Revisions:
+//   - 2025-12-11 23:51: initial creation
 func (m *Map[K, V]) Iter() *MapIter[K, V] {
 	m.mtx.RLock()
 	defer m.mtx.RUnlock()
 
-	it := &MapIter[K, V]{
-		m:       m,
-		index:   0,
-		current: nil,
-	}
-
-	// Find first non-empty bucket
-	for it.index < m.cap {
-		if e, ok := m.buckets.Get(it.index); ok && e != nil {
-			it.current = e
-			break
-		}
-		it.index++
-	}
+	it := &MapIter[K, V]{owner: m}
+	it._Advance()
 
 	return it
 }
 
-// Next returns the next key-value pair and whether it exists
-// Returns (zero_key, zero_value, false) when iteration is complete.
-func (it *MapIter[K, V]) Next() (K, V, bool) {
-	it.m.mtx.RLock()
-	defer it.m.mtx.RUnlock()
+// _Buckets returns the bucket count. The caller holds the lock.
+//
+// Revisions:
+//   - 2025-12-11 23:51: initial creation
+func (m *Map[K, V]) _Buckets() int {
+	return m.buckets.Len()
+}
 
-	if it.current == nil {
-		var zeroK K
-		var zeroV V
-		return zeroK, zeroV, false
-	}
+// _Grow doubles the bucket array and rehashes every chain into it.
+//
+// Revisions:
+//   - 2025-12-11 23:51: initial creation
+func (m *Map[K, V]) _Grow() {
+	var (
+		old    = m.buckets
+		wanted = old.Len() * GROWTH_FACTOR
+		grown  = NewVec[*_Entry[K, V]](m.arena)
+	)
 
-	// Get current entry
-	key := it.current.key
-	val := it.current.val
+	grown.Resize(wanted)
 
-	// Advance to next entry
-	it.current = it.current.next
+	m.buckets = grown
+	m.mask = uint64(wanted - 1)
 
-	// If current chain is exhausted, find next non-empty bucket
-	if it.current == nil {
-		it.index++
-		for it.index < it.m.cap {
-			if e, ok := it.m.buckets.Get(it.index); ok && e != nil {
-				it.current = e
-				break
-			}
-			it.index++
+	buckets := grown.Slice()
+
+	for _, head := range old.Slice() {
+		for entry := head; entry != nil; {
+			next := entry.next
+			index := int(entry.hash & m.mask)
+			entry.next = buckets[index]
+			buckets[index] = entry
+			entry = next
 		}
 	}
 
+	m.arena.Remove(res.SlicePtr(old.Slice()))
+}
+
+// _Intern replaces a string in place with a copy that lives in the arena.
+//
+// The pointer names a value whose type has string layout, which is what lets a
+// named string type be copied as well. Doing it through the empty interface
+// would box the string and allocate on the Go heap on every insert.
+//
+// Revisions:
+//   - 2025-12-11 23:51: initial creation
+func (m *Map[K, V]) _Intern(at unsafe.Pointer) {
+	held := (*string)(at)
+	*held = m.arena.MakeString(*held)
+}
+
+// MapIter walks a map one entry at a time.
+type MapIter[K comparable, V any] struct {
+	owner   *Map[K, V]
+	current *_Entry[K, V]
+	index   int
+}
+
+// Next returns the next key and value, reporting whether there was one.
+//
+// Revisions:
+//   - 2025-12-11 23:51: initial creation
+func (it *MapIter[K, V]) Next() (K, V, bool) {
+	it.owner.mtx.RLock()
+	defer it.owner.mtx.RUnlock()
+
+	if it.current == nil {
+		var (
+			zeroKey K
+			zeroVal V
+		)
+
+		return zeroKey, zeroVal, false
+	}
+
+	key, val := it.current.key, it.current.val
+
+	it.current = it.current.next
+	if it.current == nil {
+		it.index = it.index + 1
+		it._Advance()
+	}
+
 	return key, val, true
+}
+
+// _Advance moves to the first non-empty bucket at or after index.
+//
+// Revisions:
+//   - 2025-12-11 23:51: initial creation
+func (it *MapIter[K, V]) _Advance() {
+	buckets := it.owner.buckets.Slice()
+
+	for it.index < len(buckets) {
+		if buckets[it.index] != nil {
+			it.current = buckets[it.index]
+
+			return
+		}
+
+		it.index = it.index + 1
+	}
+}
+
+// _IsString reports whether T's underlying type is a string, so that values of
+// it can be copied into the arena.
+//
+// Revisions:
+//   - 2025-12-11 23:51: initial creation
+func _IsString[T any]() bool {
+	var zero T
+
+	return reflect.TypeOf(&zero).Elem().Kind() == reflect.String
 }

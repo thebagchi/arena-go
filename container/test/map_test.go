@@ -10,6 +10,10 @@ import (
 	"github.com/thebagchi/arena-go/container"
 )
 
+// TestMap_BasicOperations covers map basic operations.
+//
+// Revisions:
+//   - 2025-12-11 23:51: initial creation
 func TestMap_BasicOperations(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(4096 * 4096))
 	defer a.Delete()
@@ -42,6 +46,10 @@ func TestMap_BasicOperations(t *testing.T) {
 	}
 }
 
+// TestMap_Update covers map update.
+//
+// Revisions:
+//   - 2025-12-11 23:51: initial creation
 func TestMap_Update(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(4096 * 4096))
 	defer a.Delete()
@@ -49,11 +57,13 @@ func TestMap_Update(t *testing.T) {
 	m := container.NewMap[string, int](a)
 
 	m.Set("key", 100)
+
 	if val, _ := m.Get("key"); val != 100 {
 		t.Errorf("Expected 100, got %v", val)
 	}
 
 	m.Set("key", 200) // Update
+
 	if val, _ := m.Get("key"); val != 200 {
 		t.Errorf("Expected 200 after update, got %v", val)
 	}
@@ -63,6 +73,10 @@ func TestMap_Update(t *testing.T) {
 	}
 }
 
+// TestMap_Delete covers map delete.
+//
+// Revisions:
+//   - 2025-12-11 23:51: initial creation
 func TestMap_Delete(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(4096 * 4096))
 	defer a.Delete()
@@ -78,6 +92,7 @@ func TestMap_Delete(t *testing.T) {
 	}
 
 	m.Delete("key2")
+
 	if _, found := m.Get("key2"); found {
 		t.Error("Expected key2 to be deleted")
 	}
@@ -88,11 +103,16 @@ func TestMap_Delete(t *testing.T) {
 
 	// Delete nonexistent key (should not panic)
 	m.Delete("nonexistent")
+
 	if m.Len() != 2 {
 		t.Errorf("Expected length 2 after deleting nonexistent key, got %d", m.Len())
 	}
 }
 
+// TestMap_Range covers map range.
+//
+// Revisions:
+//   - 2025-12-11 23:51: initial creation
 func TestMap_Range(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(4096 * 4096))
 	defer a.Delete()
@@ -110,6 +130,7 @@ func TestMap_Range(t *testing.T) {
 	}
 
 	collected := make(map[string]int)
+
 	m.Range(func(k string, v int) bool {
 		collected[k] = v
 		return true
@@ -126,6 +147,10 @@ func TestMap_Range(t *testing.T) {
 	}
 }
 
+// TestMap_Range_StopEarly covers map range stop early.
+//
+// Revisions:
+//   - 2025-12-11 23:51: initial creation
 func TestMap_Range_StopEarly(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(4096 * 4096))
 	defer a.Delete()
@@ -137,6 +162,7 @@ func TestMap_Range_StopEarly(t *testing.T) {
 	m.Set("key3", 300)
 
 	count := 0
+
 	m.Range(func(k string, v int) bool {
 		count++
 		return count < 2 // Stop after 2 iterations
@@ -147,6 +173,10 @@ func TestMap_Range_StopEarly(t *testing.T) {
 	}
 }
 
+// TestMap_Growth covers map growth.
+//
+// Revisions:
+//   - 2025-12-11 23:51: initial creation
 func TestMap_Growth(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(4096 * 4096))
 	defer a.Delete()
@@ -171,6 +201,10 @@ func TestMap_Growth(t *testing.T) {
 	}
 }
 
+// TestMap_Reset covers map reset.
+//
+// Revisions:
+//   - 2025-12-11 23:51: initial creation
 func TestMap_Reset(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(4096 * 4096))
 	defer a.Delete()
@@ -195,6 +229,10 @@ func TestMap_Reset(t *testing.T) {
 	}
 }
 
+// TestMap_Clone covers map clone.
+//
+// Revisions:
+//   - 2025-12-11 23:51: initial creation
 func TestMap_Clone(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(4096 * 4096))
 	defer a.Delete()
@@ -222,6 +260,10 @@ func TestMap_Clone(t *testing.T) {
 	}
 }
 
+// TestMap_EmptyClone covers map empty clone.
+//
+// Revisions:
+//   - 2025-12-11 23:51: initial creation
 func TestMap_EmptyClone(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(4096 * 4096))
 	defer a.Delete()
@@ -235,6 +277,10 @@ func TestMap_EmptyClone(t *testing.T) {
 	}
 }
 
+// TestMap_ConcurrentAccess covers map concurrent access.
+//
+// Revisions:
+//   - 2025-12-11 23:51: initial creation
 func TestMap_ConcurrentAccess(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(4096 * 4096))
 	defer a.Delete()
@@ -268,6 +314,10 @@ func TestMap_ConcurrentAccess(t *testing.T) {
 	}
 }
 
+// TestMap_DifferentTypes covers map different types.
+//
+// Revisions:
+//   - 2025-12-11 23:51: initial creation
 func TestMap_DifferentTypes(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(4096 * 4096))
 	defer a.Delete()
@@ -282,6 +332,7 @@ func TestMap_DifferentTypes(t *testing.T) {
 
 	// Test with struct values
 	type Point struct{ X, Y int }
+
 	pointMap := container.NewMap[string, Point](a)
 	pointMap.Set("origin", Point{0, 0})
 
@@ -290,6 +341,10 @@ func TestMap_DifferentTypes(t *testing.T) {
 	}
 }
 
+// BenchmarkMap_Set measures map set.
+//
+// Revisions:
+//   - 2025-12-11 23:51: initial creation
 func BenchmarkMap_Set(b *testing.B) {
 	a := arena.New(alloc.NewBumpAllocator(4096 * 4096))
 	defer a.Delete()
@@ -297,11 +352,16 @@ func BenchmarkMap_Set(b *testing.B) {
 	m := container.NewMap[int, int](a)
 
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i++ {
 		m.Set(i, i*2)
 	}
 }
 
+// BenchmarkMap_Get measures map get.
+//
+// Revisions:
+//   - 2025-12-11 23:51: initial creation
 func BenchmarkMap_Get(b *testing.B) {
 	a := arena.New(alloc.NewBumpAllocator(4096 * 4096))
 	defer a.Delete()
@@ -314,11 +374,16 @@ func BenchmarkMap_Get(b *testing.B) {
 	}
 
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i++ {
 		m.Get(i % 1000)
 	}
 }
 
+// BenchmarkMap_Range measures map range.
+//
+// Revisions:
+//   - 2025-12-11 23:51: initial creation
 func BenchmarkMap_Range(b *testing.B) {
 	a := arena.New(alloc.NewBumpAllocator(4096 * 4096))
 	defer a.Delete()
@@ -331,6 +396,7 @@ func BenchmarkMap_Range(b *testing.B) {
 	}
 
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i++ {
 		m.Range(func(k, v int) bool {
 			return true
@@ -338,6 +404,10 @@ func BenchmarkMap_Range(b *testing.B) {
 	}
 }
 
+// TestMap_GetAllocations covers map get allocations.
+//
+// Revisions:
+//   - 2025-12-11 23:51: initial creation
 func TestMap_GetAllocations(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(4096 * 4096))
 	defer a.Delete()
@@ -357,6 +427,7 @@ func TestMap_GetAllocations(t *testing.T) {
 	// Verify we can read all entries
 	for i := 0; i < 20; i++ {
 		key := fmt.Sprintf("key%d", i)
+
 		val, ok := m.Get(key)
 		if !ok || val != i {
 			t.Errorf("Failed to get key%d: got %d, ok=%v", i, val, ok)
@@ -365,12 +436,14 @@ func TestMap_GetAllocations(t *testing.T) {
 
 	// Reset and verify map is empty
 	m.Reset()
+
 	if m.Len() != 0 {
 		t.Errorf("Expected 0 entries after reset, got %d", m.Len())
 	}
 
 	// Clone should work correctly
 	m.Set("test", 42)
+
 	clone := m.Clone()
 	if clone["test"] != 42 {
 		t.Errorf("Clone failed: expected 42, got %d", clone["test"])
@@ -379,6 +452,10 @@ func TestMap_GetAllocations(t *testing.T) {
 
 // Iterator tests (from map_iter_test.go)
 
+// TestMap_Keys covers map keys.
+//
+// Revisions:
+//   - 2025-12-11 23:51: initial creation
 func TestMap_Keys(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(4096 * 4096))
 	defer a.Delete()
@@ -404,6 +481,10 @@ func TestMap_Keys(t *testing.T) {
 	}
 }
 
+// TestMap_Values covers map values.
+//
+// Revisions:
+//   - 2025-12-11 23:51: initial creation
 func TestMap_Values(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(4096 * 4096))
 	defer a.Delete()
@@ -429,6 +510,10 @@ func TestMap_Values(t *testing.T) {
 	}
 }
 
+// TestMap_All_Iterator covers map all iterator.
+//
+// Revisions:
+//   - 2025-12-11 23:51: initial creation
 func TestMap_All_Iterator(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(4096 * 4096))
 	defer a.Delete()
@@ -455,6 +540,10 @@ func TestMap_All_Iterator(t *testing.T) {
 	}
 }
 
+// TestMap_All_EarlyTermination covers map all early termination.
+//
+// Revisions:
+//   - 2025-12-11 23:51: initial creation
 func TestMap_All_EarlyTermination(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(4096 * 4096))
 	defer a.Delete()
@@ -465,7 +554,7 @@ func TestMap_All_EarlyTermination(t *testing.T) {
 	}
 
 	count := 0
-	for _, _ = range m.All() {
+	for range m.All() {
 		count++
 		if count >= 5 {
 			break
@@ -477,6 +566,10 @@ func TestMap_All_EarlyTermination(t *testing.T) {
 	}
 }
 
+// TestMap_Iter covers map iter.
+//
+// Revisions:
+//   - 2025-12-11 23:51: initial creation
 func TestMap_Iter(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(4096 * 4096))
 	defer a.Delete()
@@ -487,6 +580,7 @@ func TestMap_Iter(t *testing.T) {
 	m.Set("c", 3)
 
 	entries := make(map[string]int)
+
 	iter := m.Iter()
 	for key, val, ok := iter.Next(); ok; key, val, ok = iter.Next() {
 		entries[key] = val
@@ -504,6 +598,10 @@ func TestMap_Iter(t *testing.T) {
 	}
 }
 
+// TestMap_IterEmpty covers map iter empty.
+//
+// Revisions:
+//   - 2025-12-11 23:51: initial creation
 func TestMap_IterEmpty(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(4096 * 4096))
 	defer a.Delete()
@@ -511,12 +609,17 @@ func TestMap_IterEmpty(t *testing.T) {
 	m := container.NewMap[string, int](a)
 
 	iter := m.Iter()
+
 	_, _, ok := iter.Next()
 	if ok {
 		t.Error("Expected no entries in empty map")
 	}
 }
 
+// TestMap_KeysEmpty covers map keys empty.
+//
+// Revisions:
+//   - 2025-12-11 23:51: initial creation
 func TestMap_KeysEmpty(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(4096 * 4096))
 	defer a.Delete()

@@ -1,354 +1,328 @@
-// arena/arena.go
+// Package arena provides zero-GC memory allocators with several strategies, and
+// the generic helpers that allocate Go values inside them.
 //
-// Package arena provides high-performance, zero-GC memory allocators with multiple strategies.
+// # The rule that governs everything else
 //
-// Thread Safety:
-//   - All allocators (Bump, Slab, Buddy) are thread-safe and can be used concurrently
-//   - Alloc() operations are serialized with mutexes to prevent data races
-//   - Reset() and Delete() should NOT be called concurrently with Alloc() or with each other
-//   - Multiple Arena instances are completely independent and require no synchronization
+// Arena memory comes from mmap and is invisible to Go's garbage collector. A Go
+// pointer written into arena memory does not keep its target alive, so a value
+// whose only reference lives in an arena will be collected and its storage
+// reused while the arena still points at it. This is a use-after-free that the
+// race detector cannot see and that only appears under memory pressure.
 //
-// Memory Model:
-//   - All memory is allocated via mmap and lives outside Go's garbage collector
-//   - Memory is never returned to the OS until Delete() is called
-//   - Reset() clears allocations but retains underlying memory pages
+// What that rules out: storing a heap string, slice, map, channel, func,
+// interface or pointer in arena memory. What it permits: values with no pointers
+// at all, and pointers that lead back into the same arena.
 //
-// Allocator Strategies:
-//   - BUMP: Fastest, best for batch allocations or when arena is reset frequently
-//   - SLAB: Best for fixed-size objects with high allocation/free turnover
-//   - BUDDY: Most flexible, good for varied-size allocations with power-of-2 sizes
+// Bring outside data in by copying it:
+//
+//	name := a.MakeString(userInput) // copied into the arena, safe to store
+//	node := arena.Ptr(a, Node{})    // lives in the arena, safe to point at
+//
+// The containers in the container package follow the same rule. Map copies
+// string keys for exactly this reason; a key or value of some other
+// pointer-bearing type is the caller's responsibility.
+//
+// # Allocator contract
+//
+// Every allocator here promises the same things, and the Allocator interface
+// states them once:
+//
+//   - Alloc returns memory that is zeroed, or panics with ErrOutOfMemory. It
+//     never returns nil, because every caller of a nil result dereferences it.
+//   - TryAlloc reports exhaustion instead of panicking.
+//   - align must be a power of two; zero means the natural default. Alignment up
+//     to the system page size is honoured.
+//   - Reset invalidates every pointer and keeps the memory. Delete releases it,
+//     after which any allocation panics with ErrDeleted.
+//   - Remove frees one allocation where the strategy supports it and is a no-op
+//     where it does not. It must be given the pointer that was handed out.
+//
+// # Thread safety
+//
+// All three allocators are safe for concurrent use. So are Map, SkipList and
+// Pool. Vec, Queue, Stack, Buffer and Str are not: they are the containers whose
+// operations return interior pointers, which no lock inside them could protect.
+// Give each goroutine its own arena, or guard a shared container yourself.
+//
+// # Strategies
+//
+//   - Bump is fastest and frees only in whole arenas.
+//   - Slab suits fixed-size objects with high turnover.
+//   - Buddy suits varied sizes that must be freed individually.
 package arena
 
 import (
 	"unsafe"
+
+	"github.com/thebagchi/arena-go/res"
 )
 
-// ---------------------------------------------------------------
-// Public API – one arena for all types
-// ---------------------------------------------------------------
+var (
+	// ErrOutOfMemory is what Alloc panics with when it cannot satisfy a request.
+	ErrOutOfMemory = res.ErrOutOfMemory
+	// ErrDeleted is what any operation panics with after Delete.
+	ErrDeleted = res.ErrDeleted
+)
 
-// Arena is the beautiful multi-type facade.
-// Thread-safe: Multiple goroutines can safely call Alloc concurrently.
-// The underlying allocator handles synchronization internally.
-type Arena struct {
-	Allocator
-}
-
-// New creates an arena from an Allocator implementation.
-func New(alloc Allocator) *Arena {
-	return &Arena{Allocator: alloc}
-}
-
-func (a *Arena) Reset() {
-	a.Allocator.Reset()
-}
-func (a *Arena) Delete() {
-	a.Allocator.Delete()
-}
-
-// Owns checks if the given pointer belongs to memory managed by this arena.
-// Returns true if the pointer was allocated by this arena and is still valid.
-// Returns false for nil pointers or pointers not managed by this arena.
-func (a *Arena) Owns(ptr unsafe.Pointer) bool {
-	return a.Allocator.Owns(ptr)
-}
-
-// ---------------------------------------------------------------
-// Internal raw allocators (all support growing)
-// ---------------------------------------------------------------
-
+// Allocator is the strategy an Arena is built on. The package documentation
+// states the contract every implementation keeps.
 type Allocator interface {
 	Alloc(size, align uint64) unsafe.Pointer
+	TryAlloc(size, align uint64) (unsafe.Pointer, bool)
 	Reset()
 	Delete()
 	Remove(ptr unsafe.Pointer)
 	Owns(ptr unsafe.Pointer) bool
 }
 
-// OwnsPtr checks if the given pointer to a value belongs to memory managed by this arena.
-// This is a convenience wrapper around Owns that eliminates the need for unsafe.Pointer casts.
-func OwnsPtr[T any](a *Arena, ptr *T) bool {
-	return a.Allocator.Owns(unsafe.Pointer(ptr))
+// Arena is the multi-type facade over one allocator.
+type Arena struct {
+	Allocator
 }
 
-// OwnsSlice checks if the underlying array of the given slice belongs to memory managed by this arena.
-// Returns false for nil or empty slices.
-func OwnsSlice[T any](a *Arena, slice []T) bool {
-	if len(slice) == 0 {
-		return false
-	}
-	return a.Owns(unsafe.Pointer(unsafe.SliceData(slice)))
+// New returns an arena backed by the given allocator.
+//
+// Revisions:
+//   - 2025-12-09 22:38: initial creation
+func New(allocator Allocator) *Arena {
+	return &Arena{Allocator: allocator}
 }
 
-// OwnsString checks if the underlying data of the given string belongs to memory managed by this arena.
-// Returns false for empty strings.
-func OwnsString(a *Arena, s string) bool {
+// MakeString copies s into the arena and returns a string sharing that copy.
+//
+// Copying is the point: a string built on the Go heap and stored in arena memory
+// would not be kept alive by that reference. The result is safe to store.
+//
+// Revisions:
+//   - 2025-12-09 22:38: initial creation
+func (a *Arena) MakeString(s string) string {
 	if len(s) == 0 {
-		return false
+		return ""
 	}
-	return a.Allocator.Owns(unsafe.Pointer(unsafe.StringData(s)))
+
+	ptr := a.Alloc(uint64(len(s)), 1)
+	copy(unsafe.Slice((*byte)(ptr), len(s)), s)
+
+	return unsafe.String((*byte)(ptr), len(s))
 }
 
-// ---------------------------------------------------------------
-// Object Allocation Functions
-// ---------------------------------------------------------------
-
-// Alloc allocates and returns a pointer to a new instance of type T in the arena.
-// The object is zero-initialized. This is useful for creating instances without
-// heap allocation. The pointer remains valid until the arena is deleted or reset.
+// Alloc returns a pointer to a zeroed T in the arena.
 //
-// Example:
-//
-//	ptr := arena.Alloc[int](a)
-//	*ptr = 42
+// Revisions:
+//   - 2025-12-09 22:38: initial creation
 func Alloc[T any](a *Arena) *T {
 	var zero T
-	size := unsafe.Sizeof(zero)
-	if size == 0 {
-		size = 1
-	}
-	align := unsafe.Alignof(zero)
-	ptr := a.Allocator.Alloc(uint64(size), uint64(align))
-	return (*T)(ptr)
+
+	size, align := _Shape(zero)
+
+	return (*T)(a.Alloc(size, align))
 }
 
-// Ptr allocates memory for a value in the arena and returns a pointer to it.
-// The value is copied into arena memory, making it independent of the original.
+// MakeObject returns a pointer to a zeroed T in the arena. It is Alloc under the
+// name that reads better for structs.
 //
-// Example:
+// Revisions:
+//   - 2025-12-09 22:38: initial creation
+func MakeObject[T any](a *Arena) *T {
+	return Alloc[T](a)
+}
+
+// Ptr copies value into the arena and returns a pointer to the copy.
 //
-//	a := New(1024, BUMP)
-//	defer a.Delete()
-//
-//	value := 42
-//	ptr := Ptr(a, value)  // allocates int in arena, returns *int
-//	*ptr = 100            // modify the arena-backed value
+// Revisions:
+//   - 2025-12-09 22:38: initial creation
 func Ptr[T any](a *Arena, value T) *T {
 	ptr := Alloc[T](a)
 	*ptr = value
+
 	return ptr
 }
 
-// MakeObject allocates and returns a pointer to a new instance of type T in the arena.
-// The object is zero-initialized. This is useful for creating struct instances without
-// heap allocation. The pointer remains valid until the arena is deleted or reset.
+// MakeSlice returns a zeroed slice of the given length and capacity, backed by
+// arena memory.
 //
-// Example:
+// It panics on the argument combinations the built-in make rejects, and on an
+// arena that cannot satisfy the request.
 //
-//	type Node struct { Value int; Next *Node }
-//	node := arena.MakeObject[Node](a)
-//	node.Value = 42
-func MakeObject[T any](a *Arena) *T {
-	var zero T
-	var (
-		size  uintptr = unsafe.Sizeof(zero)
-		align uintptr = unsafe.Alignof(zero)
-	)
-	if size == 0 {
-		size = 1
-	}
-	ptr := a.Allocator.Alloc(uint64(size), uint64(align))
-	return (*T)(ptr)
-}
-
-// CloneObject returns a heap-allocated copy of an arena-allocated object.
-// The returned object is independent of the arena lifecycle and can be safely
-// used after the arena is deleted. Use this when you need to preserve object
-// data beyond the arena's lifetime.
-//
-// Example:
-//
-//	type Node struct { Value int; Next *Node }
-//	arenaNode := arena.MakeObject[Node](a)
-//	arenaNode.Value = 42
-//	heapNode := arena.CloneObject(arenaNode)
-//	a.Delete() // heapNode is still valid
-func CloneObject[T any](obj *T) *T {
-	if obj == nil {
-		return nil
-	}
-	result := new(T)
-	*result = *obj
-	return result
-}
-
-// MakeSlice allocates and returns a slice of type T with the specified length and capacity in the arena.
-// The slice elements are zero-initialized. This is useful for creating slices without
-// heap allocation. The slice remains valid until the arena is deleted or reset.
-//
-// Example:
-//
-//	slice := arena.MakeSlice[int](a, 10, 20)
-//	slice[0] = 42
+// Revisions:
+//   - 2025-12-09 22:38: initial creation
 func MakeSlice[T any](a *Arena, length, capacity int) []T {
+	// The same arguments the built-in make rejects, rejected the same way: a
+	// silent nil would be a slice the caller writes to and a crash somewhere
+	// else.
+	if length < 0 || capacity < 0 || length > capacity {
+		panic("arena: invalid slice length or capacity")
+	}
+
 	if capacity == 0 {
 		return nil
 	}
-	var (
-		zero T
-		size uintptr = unsafe.Sizeof(zero)
-	)
-	if size == 0 {
-		size = 1
-	}
-	// Check for overflow
-	if uint64(capacity) > (1<<63)/uint64(size) {
+
+	var zero T
+
+	size, align := _Shape(zero)
+	if uint64(capacity) > MAX_ALLOC_BYTES/size {
 		panic("arena: slice allocation size overflow")
 	}
-	var (
-		ptr   = a.Allocator.Alloc(uint64(capacity)*uint64(size), 16)
-		slice = unsafe.Slice((*T)(ptr), capacity)
-	)
-	return slice[:length]
+
+	ptr := a.Alloc(uint64(capacity)*size, align)
+
+	return unsafe.Slice((*T)(ptr), capacity)[:length]
 }
 
-// Append appends elements to an arena-backed slice, growing it if necessary.
-// This function ensures that appended elements stay within arena memory and
-// don't cause heap allocations. When growing is required, the old slice backing
-// is automatically marked for deletion in the arena. Use this instead of the
-// built-in append function when working with arena-backed slices.
+// Append adds elements to an arena-backed slice, moving it to a larger block
+// when it runs out of capacity and releasing the old block.
 //
-// Parameters:
-//   - a: The arena that backs the slice
-//   - slice: The arena-backed slice to append to
-//   - elems: Elements to append
+// The slice must be one MakeSlice or a previous Append returned, not a re-slice
+// of one: growing frees the old backing by the address of its first element, and
+// for a re-sliced slice that address is inside the block rather than its start.
 //
-// Returns:
-//   - A new slice that includes the original elements plus the appended ones
-//
-// Example:
-//
-//	slice := arena.MakeSlice[int](a, 2, 4) // []int with cap 4
-//	slice[0] = 1
-//	slice[1] = 2
-//
-//	// Append more elements
-//	slice = arena.Append(a, slice, 3, 4, 5)
-//	fmt.Println(slice) // [1 2 3 4 5]
+// Revisions:
+//   - 2025-12-09 22:38: initial creation
 func Append[T any](a *Arena, slice []T, elems ...T) []T {
 	if len(elems) == 0 {
 		return slice
 	}
 
-	// Fast path for single element append (most common case)
-	if len(elems) == 1 {
-		length := len(slice) + 1
-		if length <= cap(slice) {
-			// Have capacity, direct assignment
-			slice = slice[:length]
-			slice[length-1] = elems[0]
-			return slice
-		}
-		// Need to grow
-		capacity := max(cap(slice)*2, 4)
-		temp := MakeSlice[T](a, length, capacity)
-		copy(temp, slice)
-		temp[length-1] = elems[0]
-		if len(slice) > 0 {
-			a.Allocator.Remove(unsafe.Pointer(&slice[0]))
-		}
-		return temp
+	length := len(slice) + len(elems)
+	if length <= cap(slice) {
+		grown := slice[:length]
+		copy(grown[len(slice):], elems)
+
+		return grown
 	}
 
-	// Multi-element append
-	length := len(slice) + len(elems)
-	if length > cap(slice) {
-		// Need to allocate new backing
-		capacity := max(max(cap(slice)*2, length), 4)
-		temp := MakeSlice[T](a, length, capacity)
-		copy(temp[:len(slice)], slice)
-		copy(temp[len(slice):], elems)
-		if len(slice) > 0 {
-			a.Allocator.Remove(unsafe.Pointer(&slice[0]))
-		}
-		return temp
+	capacity := max(cap(slice)*GROWTH_FACTOR, length, MIN_SLICE_CAPACITY)
+	grown := MakeSlice[T](a, length, capacity)
+
+	copy(grown, slice)
+	copy(grown[len(slice):], elems)
+
+	if len(slice) > 0 {
+		a.Remove(unsafe.Pointer(&slice[0]))
 	}
-	// Enough capacity, just append in place
-	copy(slice[len(slice):length], elems)
-	return slice[:length]
+
+	return grown
 }
 
-// CloneSlice returns a heap-allocated copy of an arena-backed slice.
-// The returned slice is independent of the arena lifecycle and can be safely
-// used after the arena is deleted. Use this when you need to preserve slice
-// data beyond the arena's lifetime.
+// OwnsPtr reports whether ptr points into the arena.
+//
+// Revisions:
+//   - 2025-12-09 22:38: initial creation
+func OwnsPtr[T any](a *Arena, ptr *T) bool {
+	return a.Owns(unsafe.Pointer(ptr))
+}
+
+// OwnsSlice reports whether a slice's backing array is in the arena. An empty
+// slice has no backing array, so it belongs to no arena.
+//
+// Revisions:
+//   - 2025-12-09 22:38: initial creation
+func OwnsSlice[T any](a *Arena, slice []T) bool {
+	if len(slice) == 0 {
+		return false
+	}
+
+	return a.Owns(unsafe.Pointer(unsafe.SliceData(slice)))
+}
+
+// OwnsString reports whether a string's bytes are in the arena.
+//
+// Revisions:
+//   - 2025-12-09 22:38: initial creation
+func OwnsString(a *Arena, s string) bool {
+	if len(s) == 0 {
+		return false
+	}
+
+	return a.Owns(unsafe.Pointer(unsafe.StringData(s)))
+}
+
+// CloneObject returns a heap copy of an arena object, which outlives the arena.
+//
+// Revisions:
+//   - 2025-12-09 22:38: initial creation
+func CloneObject[T any](obj *T) *T {
+	if obj == nil {
+		return nil
+	}
+
+	result := new(T)
+	*result = *obj
+
+	return result
+}
+
+// CloneSlice returns a heap copy of an arena slice, which outlives the arena.
+//
+// Revisions:
+//   - 2025-12-09 22:38: initial creation
 func CloneSlice[T any](slice []T) []T {
 	if len(slice) == 0 {
 		return nil
 	}
+
 	result := make([]T, len(slice))
 	copy(result, slice)
+
 	return result
 }
 
-// MakeString allocates and returns a string with the specified content in the arena.
-// The string is zero-copy, meaning it shares the underlying bytes with the input string.
-// This is useful for creating strings without heap allocation. The string remains valid until the arena is deleted or reset.
+// CloneString returns a heap copy of an arena string, which outlives the arena.
 //
-// Example:
-//
-//	str := arena.MakeString("hello world")
-//	fmt.Println(str) // prints "hello world"
-func (a *Arena) MakeString(s string) string {
-	if len(s) == 0 {
-		return ""
-	}
-	ptr := a.Allocator.Alloc(uint64(len(s)), 1)
-	copy((*[1 << 30]byte)(ptr)[:len(s):len(s)], s)
-	return unsafe.String((*byte)(ptr), len(s))
-}
-
-// CloneString returns a heap-allocated copy of an arena-backed string.
-// The returned string is independent of the arena lifecycle and can be safely
-// used after the arena is deleted. Use this when you need to preserve string
-// data beyond the arena's lifetime.
+// Revisions:
+//   - 2025-12-09 22:38: initial creation
 func CloneString(s string) string {
 	if len(s) == 0 {
 		return ""
 	}
-	// Force allocation on heap by creating a new string
-	return string([]byte(s))
+
+	return string(res.UnsafeBytes(s))
 }
 
-// DeleteObject marks an arena-allocated object for deletion.
-// This function should be used with allocators that support individual object deletion.
-// Note that not all allocator types support individual deletions.
+// DeleteObject frees one arena object where the allocator supports it.
 //
-// Example:
-//
-//	obj := arena.MakeObject[MyStruct](a)
-//	// ... use obj ...
-//	arena.DeleteObject(a, obj)
+// Revisions:
+//   - 2025-12-09 22:38: initial creation
 func DeleteObject[T any](a *Arena, obj *T) {
-	a.Allocator.Remove(unsafe.Pointer(obj))
+	if obj != nil {
+		a.Remove(unsafe.Pointer(obj))
+	}
 }
 
-// DeleteSlice marks an arena-allocated slice for deletion.
-// This function should be used with allocators that support individual slice deletion.
-// Note that not all allocator types support individual deletions.
+// DeleteSlice frees an arena slice's backing block. It must be given the slice
+// MakeSlice returned rather than a re-slice of it.
 //
-// Example:
-//
-//	slice := arena.MakeSlice[int](a, 10, 20)
-//	// ... use slice ...
-//	arena.DeleteSlice(a, slice)
+// Revisions:
+//   - 2025-12-09 22:38: initial creation
 func DeleteSlice[T any](a *Arena, slice []T) {
 	if len(slice) > 0 {
-		a.Allocator.Remove(unsafe.Pointer(&slice[0]))
+		a.Remove(unsafe.Pointer(&slice[0]))
 	}
 }
 
-// DeleteString marks an arena-allocated string for deletion.
-// This function should be used with allocators that support individual string deletion.
-// Note that not all allocator types support individual deletions.
+// DeleteString frees an arena string's bytes.
 //
-// Example:
-//
-//	str := a.MakeString("hello world")
-//	// ... use str ...
-//	arena.DeleteString(a, str)
+// Revisions:
+//   - 2025-12-09 22:38: initial creation
 func DeleteString(a *Arena, s string) {
 	if len(s) > 0 {
-		a.Allocator.Remove(unsafe.Pointer(unsafe.StringData(s)))
+		a.Remove(unsafe.Pointer(unsafe.StringData(s)))
 	}
+}
+
+// _Shape returns the allocation size and alignment for a value.
+//
+// A zero-sized type still gets one byte, so that two allocations of it have
+// distinct addresses and an ownership test can tell them apart.
+//
+// Revisions:
+//   - 2025-12-09 22:38: initial creation
+func _Shape[T any](zero T) (uint64, uint64) {
+	size := unsafe.Sizeof(zero)
+	if size == 0 {
+		size = 1
+	}
+
+	return uint64(size), uint64(unsafe.Alignof(zero))
 }

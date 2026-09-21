@@ -8,6 +8,10 @@ import (
 	"github.com/thebagchi/arena-go/container"
 )
 
+// TestSkipList_InsertSearch covers skip list insert search.
+//
+// Revisions:
+//   - 2025-12-13 00:05: initial creation
 func TestSkipList_InsertSearch(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1 * 4096))
 	defer a.Delete()
@@ -41,12 +45,17 @@ func TestSkipList_InsertSearch(t *testing.T) {
 		if found != tt.found {
 			t.Errorf("Search(%d): expected found=%v, got %v", tt.key, tt.found, found)
 		}
+
 		if found && val != tt.expected {
 			t.Errorf("Search(%d): expected %s, got %s", tt.key, tt.expected, val)
 		}
 	}
 }
 
+// TestSkipList_Update covers skip list update.
+//
+// Revisions:
+//   - 2025-12-13 00:05: initial creation
 func TestSkipList_Update(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1 * 4096))
 	defer a.Delete()
@@ -61,6 +70,7 @@ func TestSkipList_Update(t *testing.T) {
 	if !found {
 		t.Fatal("Expected to find key 10")
 	}
+
 	if val != "TEN" {
 		t.Errorf("Expected 'TEN', got %s", val)
 	}
@@ -70,6 +80,10 @@ func TestSkipList_Update(t *testing.T) {
 	}
 }
 
+// TestSkipList_Delete covers skip list delete.
+//
+// Revisions:
+//   - 2025-12-13 00:05: initial creation
 func TestSkipList_Delete(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1 * 4096))
 	defer a.Delete()
@@ -101,6 +115,10 @@ func TestSkipList_Delete(t *testing.T) {
 	}
 }
 
+// TestSkipList_Contains covers skip list contains.
+//
+// Revisions:
+//   - 2025-12-13 00:05: initial creation
 func TestSkipList_Contains(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1 * 4096))
 	defer a.Delete()
@@ -113,14 +131,20 @@ func TestSkipList_Contains(t *testing.T) {
 	if !sl.Contains(10) {
 		t.Error("Expected Contains(10) to return true")
 	}
+
 	if !sl.Contains(5) {
 		t.Error("Expected Contains(5) to return true")
 	}
+
 	if sl.Contains(100) {
 		t.Error("Expected Contains(100) to return false")
 	}
 }
 
+// TestSkipList_MinMax covers skip list min max.
+//
+// Revisions:
+//   - 2025-12-13 00:05: initial creation
 func TestSkipList_MinMax(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1 * 4096))
 	defer a.Delete()
@@ -150,9 +174,11 @@ func TestSkipList_MinMax(t *testing.T) {
 	if !found {
 		t.Fatal("Expected Min() to find a value")
 	}
+
 	if minKey != 3 {
 		t.Errorf("Expected min key 3, got %d", minKey)
 	}
+
 	if minVal != "three" {
 		t.Errorf("Expected min value 'three', got %s", minVal)
 	}
@@ -162,14 +188,20 @@ func TestSkipList_MinMax(t *testing.T) {
 	if !found {
 		t.Fatal("Expected Max() to find a value")
 	}
+
 	if maxKey != 20 {
 		t.Errorf("Expected max key 20, got %d", maxKey)
 	}
+
 	if maxVal != "twenty" {
 		t.Errorf("Expected max value 'twenty', got %s", maxVal)
 	}
 }
 
+// TestSkipList_Range covers skip list range.
+//
+// Revisions:
+//   - 2025-12-13 00:05: initial creation
 func TestSkipList_Range(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1 * 4096))
 	defer a.Delete()
@@ -182,11 +214,15 @@ func TestSkipList_Range(t *testing.T) {
 	sl.Insert(3, "three")
 
 	// Collect all elements
-	var keys []int
-	var values []string
+	var (
+		keys   []int
+		values []string
+	)
+
 	sl.Range(func(k int, v string) bool {
 		keys = append(keys, k)
 		values = append(values, v)
+
 		return true
 	})
 
@@ -195,6 +231,7 @@ func TestSkipList_Range(t *testing.T) {
 	if len(keys) != len(expected) {
 		t.Fatalf("Expected %d keys, got %d", len(expected), len(keys))
 	}
+
 	for i, k := range keys {
 		if k != expected[i] {
 			t.Errorf("Expected key[%d] = %d, got %d", i, expected[i], k)
@@ -203,15 +240,21 @@ func TestSkipList_Range(t *testing.T) {
 
 	// Test early termination
 	count := 0
+
 	sl.Range(func(k int, v string) bool {
 		count++
 		return count < 2
 	})
+
 	if count != 2 {
 		t.Errorf("Expected to iterate 2 times, got %d", count)
 	}
 }
 
+// TestSkipList_Len covers skip list len.
+//
+// Revisions:
+//   - 2025-12-13 00:05: initial creation
 func TestSkipList_Len(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1 * 4096))
 	defer a.Delete()
@@ -237,6 +280,10 @@ func TestSkipList_Len(t *testing.T) {
 	}
 }
 
+// TestSkipList_Reset covers skip list reset.
+//
+// Revisions:
+//   - 2025-12-13 00:05: initial creation
 func TestSkipList_Reset(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1 * 4096))
 	defer a.Delete()
@@ -258,6 +305,10 @@ func TestSkipList_Reset(t *testing.T) {
 	}
 }
 
+// TestSkipList_Clone covers skip list clone.
+//
+// Revisions:
+//   - 2025-12-13 00:05: initial creation
 func TestSkipList_Clone(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1 * 4096))
 	defer a.Delete()
@@ -273,21 +324,28 @@ func TestSkipList_Clone(t *testing.T) {
 	if m == nil {
 		t.Fatal("Expected non-nil map")
 	}
+
 	if len(m) != 3 {
 		t.Errorf("Expected map length 3, got %d", len(m))
 	}
+
 	if m[10] != "ten" || m[5] != "five" || m[15] != "fifteen" {
 		t.Error("Clone map has incorrect values")
 	}
 
 	// Empty skip list
 	sl2 := container.NewSkipList[int, string](a)
+
 	m2 := sl2.Clone()
 	if m2 != nil {
 		t.Error("Expected nil map for empty skip list")
 	}
 }
 
+// TestSkipList_CloneSlice covers skip list clone slice.
+//
+// Revisions:
+//   - 2025-12-13 00:05: initial creation
 func TestSkipList_CloneSlice(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1 * 4096))
 	defer a.Delete()
@@ -304,6 +362,7 @@ func TestSkipList_CloneSlice(t *testing.T) {
 	if s == nil {
 		t.Fatal("Expected non-nil slice")
 	}
+
 	if len(s) != 4 {
 		t.Errorf("Expected slice length 4, got %d", len(s))
 	}
@@ -328,12 +387,17 @@ func TestSkipList_CloneSlice(t *testing.T) {
 
 	// Empty skip list
 	sl2 := container.NewSkipList[int, string](a)
+
 	s2 := sl2.CloneSlice()
 	if s2 != nil {
 		t.Error("Expected nil slice for empty skip list")
 	}
 }
 
+// TestSkipList_Iterators covers skip list iterators.
+//
+// Revisions:
+//   - 2025-12-13 00:05: initial creation
 func TestSkipList_Iterators(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1 * 4096))
 	defer a.Delete()
@@ -346,16 +410,21 @@ func TestSkipList_Iterators(t *testing.T) {
 	sl.Insert(3, "three")
 
 	// Test All()
-	var keys []int
-	var values []string
+	var (
+		keys   []int
+		values []string
+	)
+
 	for k, v := range sl.All() {
 		keys = append(keys, k)
 		values = append(values, v)
 	}
+
 	expectedKeys := []int{3, 5, 10, 15}
 	if len(keys) != len(expectedKeys) {
 		t.Fatalf("All(): expected %d pairs, got %d", len(expectedKeys), len(keys))
 	}
+
 	for i, k := range keys {
 		if k != expectedKeys[i] {
 			t.Errorf("All(): expected key[%d] = %d, got %d", i, expectedKeys[i], k)
@@ -367,9 +436,11 @@ func TestSkipList_Iterators(t *testing.T) {
 	for k := range sl.Keys() {
 		keys = append(keys, k)
 	}
+
 	if len(keys) != len(expectedKeys) {
 		t.Fatalf("Keys(): expected %d keys, got %d", len(expectedKeys), len(keys))
 	}
+
 	for i, k := range keys {
 		if k != expectedKeys[i] {
 			t.Errorf("Keys(): expected key[%d] = %d, got %d", i, expectedKeys[i], k)
@@ -381,17 +452,28 @@ func TestSkipList_Iterators(t *testing.T) {
 	for v := range sl.Values() {
 		values = append(values, v)
 	}
+
 	expectedValues := []string{"three", "five", "ten", "fifteen"}
 	if len(values) != len(expectedValues) {
 		t.Fatalf("Values(): expected %d values, got %d", len(expectedValues), len(values))
 	}
+
 	for i, v := range values {
 		if v != expectedValues[i] {
-			t.Errorf("Values(): expected value[%d] = %s, got %s", i, expectedValues[i], v)
+			t.Errorf(
+				"Values(): expected value[%d] = %s, got %s",
+				i,
+				expectedValues[i],
+				v,
+			)
 		}
 	}
 }
 
+// TestSkipList_StringKeys covers skip list string keys.
+//
+// Revisions:
+//   - 2025-12-13 00:05: initial creation
 func TestSkipList_StringKeys(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1 * 4096))
 	defer a.Delete()
@@ -412,6 +494,7 @@ func TestSkipList_StringKeys(t *testing.T) {
 	if len(keys) != len(expected) {
 		t.Fatalf("Expected %d keys, got %d", len(expected), len(keys))
 	}
+
 	for i, k := range keys {
 		if k != expected[i] {
 			t.Errorf("Expected key[%d] = %s, got %s", i, expected[i], k)
@@ -419,6 +502,10 @@ func TestSkipList_StringKeys(t *testing.T) {
 	}
 }
 
+// TestSkipList_FloatKeys covers skip list float keys.
+//
+// Revisions:
+//   - 2025-12-13 00:05: initial creation
 func TestSkipList_FloatKeys(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(1 * 4096))
 	defer a.Delete()
@@ -440,6 +527,10 @@ func TestSkipList_FloatKeys(t *testing.T) {
 	}
 }
 
+// TestSkipList_ManyElements covers skip list many elements.
+//
+// Revisions:
+//   - 2025-12-13 00:05: initial creation
 func TestSkipList_ManyElements(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(10 * 4096))
 	defer a.Delete()
@@ -462,6 +553,7 @@ func TestSkipList_ManyElements(t *testing.T) {
 		if !found {
 			t.Errorf("Expected to find key %d", i)
 		}
+
 		if val != i*10 {
 			t.Errorf("Expected value %d, got %d", i*10, val)
 		}
@@ -473,6 +565,7 @@ func TestSkipList_ManyElements(t *testing.T) {
 		if k <= prev {
 			t.Errorf("Keys not in sorted order: %d after %d", k, prev)
 		}
+
 		prev = k
 	}
 }

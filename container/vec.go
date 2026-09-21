@@ -1,13 +1,17 @@
-// Package arena provides high-performance, zero-GC slice implementation using arena memory.
-// Slice offers appendable slices with small slice optimization (SSO) for minimal memory overhead.
+// Package container holds data structures whose storage lives in an arena
+// rather than on the Go heap.
 //
-// Features:
-// • Zero heap allocations for append operations
-// • Small Slice Optimization (SSO) for small slices
-// • Comprehensive API with 30+ methods
-// • Full iterator support (Go 1.23+)
-// • Range loop compatibility
-// • Sorting, searching, and manipulation operations
+// The rule from the arena package applies to every one of them: arena memory is
+// invisible to the garbage collector, so a Go pointer, string, slice, map,
+// channel, func or interface stored in one of these containers is not kept alive
+// by being stored there. Element types that contain no pointers are always safe,
+// and so are pointers back into the same arena. Map copies string keys into the
+// arena for this reason; for any other pointer-bearing type the caller copies.
+//
+// Map, SkipList and Pool are safe for concurrent use. Vec, Queue, Stack, Buffer
+// and Str are not: their operations hand back interior pointers and slices that
+// stay valid after any lock inside them would have been released, so a lock
+// would promise a safety it could not deliver.
 package container
 
 import (
@@ -18,421 +22,398 @@ import (
 	"github.com/thebagchi/arena-go/res"
 )
 
-// Vec[T] – the ultimate appendable slice in arena memory
-// • All data allocated from arena memory
-// • Append/Push never touches the Go heap
-// • 30+ methods for comprehensive slice operations
+const (
+	// SSO_THRESHOLD is the capacity a small vector starts with, so that the
+	// first handful of appends do not move the backing block.
+	SSO_THRESHOLD = 16
+	// LARGE_CAPACITY is the starting capacity once the first request is already
+	// past the small-vector threshold.
+	LARGE_CAPACITY = 64
+	// GROWTH_FACTOR is how much capacity grows when a vector is full.
+	GROWTH_FACTOR = 2
+	// NOT_FOUND is what a search returns when there is no match.
+	NOT_FOUND = -1
+)
+
+// Vec is an appendable slice whose backing array lives in an arena.
 //
-// Core operations: AppendOne, Push, Pop, Get, Set, Insert, Remove
-// Bulk operations: AppendSlice, Append, Resize, Clear, Reset
-// Algorithms: Sort, SortStable, SortBy, Reverse, Contains, IndexOf
-// Conversion: Clone (heap), CloneSlice (arena), ToSlice
-// Iteration: All, All2, Keys, Iter (pull-based), range loops
-//
-// Usage:
-//
-// a := New(1024, BUMP) // Create arena
-// defer a.Delete()
-//
-// // Create empty slice
-// slice := NewVec[int](a)
-//
-// // Append elements (zero heap allocations)
-// slice.AppendOne(1)
-// slice.AppendOne(2)
-// slice.AppendOne(3)
-//
-// // Append multiple elements
-// slice.AppendSlice([]int{4, 5, 6})
-//
-// // Access elements
-// fmt.Println(slice.Slice()) // [1 2 3 4 5 6]
-//
-// // Iterate using modern iterators (Go 1.23+)
-// for v := range slice.All() {
-// fmt.Println(v)
-// }
-//
-// // Iterate with indices
-// for i, v := range slice.All2() {
-// fmt.Printf("index %d: %v\n", i, v)
-// }
-//
-// // Traditional range loop
-// for i, v := range slice.Slice() {
-// fmt.Printf("index %d: %v\n", i, v)
-// }
-//
-// // Pull-based iteration
-// iter := slice.Iter()
-// for v, ok := iter.Next(); ok; v, ok = iter.Next() {
-// fmt.Println(v)
-// }
+// It is not safe for concurrent use. Slice returns the backing array itself, so
+// a caller can hold a reference that outlives any lock this type could take.
 type Vec[T any] struct {
 	arena *arena.Arena
 	data  []T
 }
 
-const SSO_THRESHOLD = 16 // SSO for slices up to 16 elements
+// NewVec returns a vector holding the given initial elements.
+//
+// Revisions:
+//   - 2025-12-09 23:15: initial creation
+func NewVec[T any](a *arena.Arena, initial ...T) *Vec[T] {
+	v := &Vec[T]{arena: a}
 
-// Len returns current length
-func (s *Vec[T]) Len() int {
-	return len(s.data)
+	if len(initial) > 0 {
+		v.AppendSlice(initial)
+
+		return v
+	}
+
+	v.data = arena.MakeSlice[T](a, 0, SSO_THRESHOLD)
+
+	return v
 }
 
-// Cap returns current capacity
-func (s *Vec[T]) Cap() int {
-	return cap(s.data)
+// Len returns the number of elements held.
+//
+// Revisions:
+//   - 2025-12-09 23:15: initial creation
+func (v *Vec[T]) Len() int {
+	return len(v.data)
 }
 
-// Slice returns the current slice (zero-copy)
-// This provides access to the underlying data as a standard Go slice.
-// The returned slice shares memory with the ArenaSlice and remains valid
-// until the arena is deleted or reset.
-// ⚠️ CAUTION: Storing the returned slice in a long-lived variable may cause heap escape.
-func (s *Vec[T]) Slice() []T {
-	return s.data
+// Cap returns the capacity of the backing array.
+//
+// Revisions:
+//   - 2025-12-09 23:15: initial creation
+func (v *Vec[T]) Cap() int {
+	return cap(v.data)
 }
 
-// AppendOne appends one element
-// This operation never allocates on the heap - all data is stored in arena memory.
-// Small slices (up to ssoThreshold elements) get small initial capacity.
+// Slice returns the backing array as a plain slice, without copying. It stays
+// valid until the arena is reset or deleted.
 //
-// Example:
-//
-// slice := NewVec[int](a)
-// slice.AppendOne(42)
-// slice.AppendOne(24)
-// fmt.Println(slice.Len()) // 2
-func (s *Vec[T]) AppendOne(v T) {
-	s.ensure(len(s.data) + 1)
-	s.data = s.data[:len(s.data)+1]
-	s.data[len(s.data)-1] = v
+// Revisions:
+//   - 2025-12-09 23:15: initial creation
+func (v *Vec[T]) Slice() []T {
+	return v.data
 }
 
-// Append adds multiple elements to the slice
-// Similar to Go's built-in append function but for ArenaSlice.
-// This method takes any number of elements and appends them efficiently.
+// AppendOne adds one element.
 //
-// Example:
-//
-// slice := NewVec[int](a)
-// slice.Append(1, 2, 3)  // append multiple elements at once
-// slice.Append(4)         // append single element
-// fmt.Println(slice.Slice()) // [1 2 3 4]
-func (s *Vec[T]) Append(elems ...T) {
-	s.AppendSlice(elems)
+// Revisions:
+//   - 2025-12-09 23:15: initial creation
+func (v *Vec[T]) AppendOne(value T) {
+	v.Ensure(len(v.data) + 1)
+	v.data = v.data[:len(v.data)+1]
+	v.data[len(v.data)-1] = value
 }
 
-// AppendSlice appends multiple elements
-// Efficiently appends a slice of elements with a single capacity check.
-// Uses copy() for optimal performance.
+// Append adds several elements.
 //
-// Example:
+// Revisions:
+//   - 2025-12-09 23:15: initial creation
+func (v *Vec[T]) Append(elems ...T) {
+	v.AppendSlice(elems)
+}
+
+// AppendSlice adds every element of src.
 //
-// slice := NewVec[string](a)
-// slice.AppendSlice([]string{"hello", "world"})
-// slice.AppendSlice([]string{"foo", "bar"})
-// fmt.Println(slice.Slice()) // [hello world foo bar]
-func (s *Vec[T]) AppendSlice(src []T) {
+// Revisions:
+//   - 2025-12-09 23:15: initial creation
+func (v *Vec[T]) AppendSlice(src []T) {
 	if len(src) == 0 {
 		return
 	}
-	s.ensure(len(s.data) + len(src))
-	oldLen := len(s.data)
-	s.data = s.data[:oldLen+len(src)]
-	copy(s.data[oldLen:], src)
+
+	old := len(v.data)
+
+	v.Ensure(old + len(src))
+	v.data = v.data[:old+len(src)]
+	copy(v.data[old:], src)
 }
 
-// ensure grows if needed
-func (s *Vec[T]) ensure(needed int) {
-	if needed <= cap(s.data) {
+// Ensure grows the backing array so it can hold needed elements.
+//
+// Revisions:
+//   - 2025-12-09 23:15: initial creation
+func (v *Vec[T]) Ensure(needed int) {
+	if needed <= cap(v.data) {
 		return
 	}
 
-	// Determine new capacity with SSO awareness
-	var capacity int
-	if cap(s.data) == 0 {
-		// Initial allocation - use SSO threshold for small slices
-		if needed <= SSO_THRESHOLD {
-			capacity = SSO_THRESHOLD
-		} else {
-			capacity = max(needed, 64)
-		}
-	} else {
-		// Growth - double capacity or fit needed
-		capacity = max(cap(s.data)*2, needed)
-	}
-
-	// Use MakeSlice from object.go to allocate from arena
-	temp := arena.MakeSlice[T](s.arena, len(s.data), capacity)
-	copy(temp, s.data)
-	s.arena.Remove(res.AsUnsafePointerSlice(s.data))
-	s.data = temp
-}
-
-// Reset keeps capacity, clears length
-// This allows reusing the allocated memory for new data without deallocation.
-// The capacity remains the same, making subsequent appends more efficient.
-//
-// Example:
-//
-// slice := NewVec[int](a)
-// slice.AppendSlice([]int{1, 2, 3})
-// fmt.Println(slice.Len()) // 3
-// slice.Reset()
-// fmt.Println(slice.Len()) // 0
-// fmt.Println(slice.Cap()) // still has capacity
-func (s *Vec[T]) Reset() {
-	s.data = s.data[:0]
-}
-
-// Clone returns a heap-allocated copy of the slice that escapes the arena.
-// ⚠️ HEAP ESCAPE: This function allocates on the heap.
-// The returned slice is independent of the arena lifecycle and can be safely
-// used after the arena is deleted. Use this when you need to preserve slice
-// data beyond the arena's lifetime.
-//
-// Example:
-//
-// arenaSlice := NewVec[int](a)
-// arenaSlice.AppendSlice([]int{1, 2, 3})
-//
-// heapSlice := arenaSlice.Clone() // heap allocation here
-// a.Delete() // arena is gone, but heapSlice is still valid
-//
-// fmt.Println(heapSlice) // [1 2 3]
-func (s *Vec[T]) Clone() []T {
-	if len(s.data) == 0 {
-		return nil
-	}
-	result := make([]T, len(s.data))
-	copy(result, s.data)
-	return result
-}
-
-// NewSlice creates a new Slice from initial data
-// All data is allocated from arena memory. Small slices benefit from SSO threshold.
-//
-// Example:
-//
-// a := New(1024, BUMP)
-//
-// // Small slice - efficient SSO allocation
-// small := NewVec[int](a, 1, 2, 3)
-//
-// // Large slice - arena memory
-// large := NewVec[int](a)
-// for i := 0; i < 100; i++ {
-// large.AppendOne(i)
-// }
-func NewVec[T any](a *arena.Arena, initial ...T) *Vec[T] {
-	as := &Vec[T]{arena: a}
-	if len(initial) > 0 {
-		as.AppendSlice(initial)
-	} else {
-		// Pre-allocate SSO capacity for empty slices
-		as.data = arena.MakeSlice[T](a, 0, SSO_THRESHOLD)
-	}
-	return as
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Extended Methods — Super User-Friendly!
-// ─────────────────────────────────────────────────────────────────────────────
-
-// Push = AppendOne (alias — very common)
-func (s *Vec[T]) Push(v T) {
-	s.AppendOne(v)
-}
-
-// Pop removes and returns last element
-func (s *Vec[T]) Pop() (T, bool) {
-	if len(s.data) == 0 {
-		var zero T
-		return zero, false
-	}
-	val := s.data[len(s.data)-1]
-	s.data = s.data[:len(s.data)-1]
-	return val, true
-}
-
-// Get returns element at index (safe)
-func (s *Vec[T]) Get(i int) (T, bool) {
-	if i < 0 || i >= len(s.data) {
-		var zero T
-		return zero, false
-	}
-	return s.data[i], true
-}
-
-// Set replaces element at index
-func (s *Vec[T]) Set(i int, v T) bool {
-	if i < 0 || i >= len(s.data) {
-		return false
-	}
-	s.data[i] = v
-	return true
-}
-
-// Insert at index (shifts elements)
-func (s *Vec[T]) Insert(i int, v T) bool {
-	if i < 0 || i > len(s.data) {
-		return false
-	}
-	s.ensure(len(s.data) + 1)
-	s.data = s.data[:len(s.data)+1]
-	copy(s.data[i+1:], s.data[i:len(s.data)-1])
-	s.data[i] = v
-	return true
-}
-
-// Remove at index (shifts elements)
-func (s *Vec[T]) Remove(i int) bool {
-	if i < 0 || i >= len(s.data) {
-		return false
-	}
-	copy(s.data[i:], s.data[i+1:])
-	s.data = s.data[:len(s.data)-1]
-	return true
-}
-
-// RemoveBy removes elements matching a condition with quantity control.
-// The limit parameter controls maximum number of elements to remove (0 = unlimited).
-// Returns the number of elements removed.
-//
-// Example:
-//
-//	slice := NewVec[int](a, 1, 2, 3, 4, 5, 5, 5)
-//	removed := slice.RemoveBy(2, func(i int, v int) bool { return v == 5 })
-//	// removed = 2, slice contains [1, 2, 3, 4, 5]
-func (s *Vec[T]) RemoveBy(limit int, fn func(index int, v T) bool) int {
-	var removed int
-	for i := len(s.data) - 1; i >= 0; i-- {
-		if fn(i, s.data[i]) {
-			s.Remove(i)
-			removed++
-			if removed >= limit && limit > 0 {
-				return removed
-			}
+	capacity := max(cap(v.data)*GROWTH_FACTOR, needed)
+	if cap(v.data) == 0 {
+		capacity = SSO_THRESHOLD
+		if needed > SSO_THRESHOLD {
+			capacity = max(needed, LARGE_CAPACITY)
 		}
 	}
+
+	grown := arena.MakeSlice[T](v.arena, len(v.data), capacity)
+	copy(grown, v.data)
+	v.arena.Remove(res.SlicePtr(v.data))
+	v.data = grown
+}
+
+// Push adds one element to the end.
+//
+// Revisions:
+//   - 2025-12-09 23:15: initial creation
+func (v *Vec[T]) Push(value T) {
+	v.AppendOne(value)
+}
+
+// Pop removes and returns the last element, reporting whether there was one.
+//
+// Revisions:
+//   - 2025-12-09 23:15: initial creation
+func (v *Vec[T]) Pop() (T, bool) {
+	if len(v.data) == 0 {
+		var zero T
+
+		return zero, false
+	}
+
+	value := v.data[len(v.data)-1]
+	v.data = v.data[:len(v.data)-1]
+
+	return value, true
+}
+
+// Get returns the element at idx, reporting whether idx was in range.
+//
+// Revisions:
+//   - 2025-12-09 23:15: initial creation
+func (v *Vec[T]) Get(idx int) (T, bool) {
+	if idx < 0 || idx >= len(v.data) {
+		var zero T
+
+		return zero, false
+	}
+
+	return v.data[idx], true
+}
+
+// Set replaces the element at idx, reporting whether idx was in range.
+//
+// Revisions:
+//   - 2025-12-09 23:15: initial creation
+func (v *Vec[T]) Set(idx int, value T) bool {
+	if idx < 0 || idx >= len(v.data) {
+		return false
+	}
+
+	v.data[idx] = value
+
+	return true
+}
+
+// At returns the element at idx without a range check.
+//
+// Revisions:
+//   - 2025-12-09 23:15: initial creation
+func (v *Vec[T]) At(idx int) T {
+	return v.data[idx]
+}
+
+// Insert places value at idx, shifting later elements up.
+//
+// Revisions:
+//   - 2025-12-09 23:15: initial creation
+func (v *Vec[T]) Insert(idx int, value T) bool {
+	if idx < 0 || idx > len(v.data) {
+		return false
+	}
+
+	v.Ensure(len(v.data) + 1)
+	v.data = v.data[:len(v.data)+1]
+	copy(v.data[idx+1:], v.data[idx:len(v.data)-1])
+	v.data[idx] = value
+
+	return true
+}
+
+// Remove deletes the element at idx, shifting later elements down.
+//
+// Revisions:
+//   - 2025-12-09 23:15: initial creation
+func (v *Vec[T]) Remove(idx int) bool {
+	if idx < 0 || idx >= len(v.data) {
+		return false
+	}
+
+	copy(v.data[idx:], v.data[idx+1:])
+	v.data = v.data[:len(v.data)-1]
+
+	return true
+}
+
+// RemoveBy deletes elements the predicate accepts, at most limit of them, or all
+// of them when limit is not positive. It returns how many it removed.
+//
+// Revisions:
+//   - 2025-12-09 23:15: initial creation
+func (v *Vec[T]) RemoveBy(limit int, match func(int, T) bool) int {
+	removed := 0
+
+	for i := len(v.data) - 1; i >= 0; i-- {
+		if !match(i, v.data[i]) {
+			continue
+		}
+
+		v.Remove(i)
+
+		removed = removed + 1
+		if limit > 0 && removed >= limit {
+			return removed
+		}
+	}
+
 	return removed
 }
 
-// Clear keeps capacity
-func (s *Vec[T]) Clear() {
-	s.data = s.data[:0]
+// Clear drops every element and keeps the capacity.
+//
+// Revisions:
+//   - 2025-12-09 23:15: initial creation
+func (v *Vec[T]) Clear() {
+	v.data = v.data[:0]
 }
 
-// Resize to exact length (zero-fill if growing)
-func (s *Vec[T]) Resize(n int) {
-	if n <= len(s.data) {
-		s.data = s.data[:n]
+// Reset drops every element and keeps the capacity.
+//
+// Revisions:
+//   - 2025-12-09 23:15: initial creation
+func (v *Vec[T]) Reset() {
+	v.data = v.data[:0]
+}
+
+// Resize sets the length, zero-filling any new elements.
+//
+// Revisions:
+//   - 2025-12-09 23:15: initial creation
+func (v *Vec[T]) Resize(n int) {
+	if n <= len(v.data) {
+		v.data = v.data[:max(n, 0)]
+
 		return
 	}
-	s.ensure(n)
-	oldLen := len(s.data)
-	s.data = s.data[:n]
-	for i := oldLen; i < n; i++ {
-		s.data[i] = *new(T)
+
+	old := len(v.data)
+
+	v.Ensure(n)
+	v.data = v.data[:n]
+
+	var zero T
+
+	for i := old; i < n; i++ {
+		v.data[i] = zero
 	}
 }
 
-// Truncate shrinks length
-func (s *Vec[T]) Truncate(n int) bool {
-	if n < 0 || n > len(s.data) {
+// Truncate shortens the vector to n elements.
+//
+// Revisions:
+//   - 2025-12-09 23:15: initial creation
+func (v *Vec[T]) Truncate(n int) bool {
+	if n < 0 || n > len(v.data) {
 		return false
 	}
-	s.data = s.data[:n]
+
+	v.data = v.data[:n]
+
 	return true
 }
 
-// Reverse in place
-func (s *Vec[T]) Reverse() {
-	slice := s.Slice()
-	for i, j := 0, len(slice)-1; i < j; i, j = i+1, j-1 {
-		slice[i], slice[j] = slice[j], slice[i]
+// Reverse reverses the elements in place.
+//
+// Revisions:
+//   - 2025-12-09 23:15: initial creation
+func (v *Vec[T]) Reverse() {
+	for i, j := 0, len(v.data)-1; i < j; i, j = i+1, j-1 {
+		v.data[i], v.data[j] = v.data[j], v.data[i]
 	}
 }
 
-// Sort (for ordered types)
-// ⚠️ CAUTION: The comparison function may cause closure allocations.
-func (s *Vec[T]) Sort(less func(a, b T) bool) {
-	slice := s.Slice()
-	sort.Slice(slice, func(i, j int) bool { return less(slice[i], slice[j]) })
+// Sort orders the elements by the given less function.
+//
+// Revisions:
+//   - 2025-12-09 23:15: initial creation
+func (v *Vec[T]) Sort(less func(T, T) bool) {
+	data := v.data
+	sort.Slice(data, func(i, j int) bool {
+		return less(data[i], data[j])
+	})
 }
 
-// SortStable
-// ⚠️ CAUTION: The comparison function may cause closure allocations.
-func (s *Vec[T]) SortStable(less func(a, b T) bool) {
-	slice := s.Slice()
-	sort.SliceStable(slice, func(i, j int) bool { return less(slice[i], slice[j]) })
+// SortStable orders the elements by the given less function, keeping equal
+// elements in their original order.
+//
+// Revisions:
+//   - 2025-12-09 23:15: initial creation
+func (v *Vec[T]) SortStable(less func(T, T) bool) {
+	data := v.data
+	sort.SliceStable(data, func(i, j int) bool {
+		return less(data[i], data[j])
+	})
 }
 
-// SortBy (for cmp.Ordered)
-func (s *Vec[T]) SortBy(cmpFn func(a, b T) int) {
-	if cmpFn == nil {
-		// For basic ordered types, this will panic if T is not ordered
-		// Users should provide their own comparison function
-		panic("SortBy requires a comparison function for non-ordered types")
-	}
-	s.Sort(func(a, b T) bool { return cmpFn(a, b) < 0 })
+// SortBy orders the elements by a three-way comparison.
+//
+// Revisions:
+//   - 2025-12-09 23:15: initial creation
+func (v *Vec[T]) SortBy(compare func(T, T) int) {
+	v.Sort(func(a, b T) bool {
+		return compare(a, b) < 0
+	})
 }
 
-// Contains
-// ⚠️ CAUTION: Using any() for comparison may cause interface allocations.
-func (s *Vec[T]) Contains(v T) bool {
-	for _, x := range s.Slice() {
-		if any(x) == any(v) {
-			return true
-		}
-	}
-	return false
-}
-
-// IndexOf finds the first occurrence of an element
-// ⚠️ CAUTION: Using any() for comparison may cause interface allocations.
-func (s *Vec[T]) IndexOf(v T) int {
-	for i, x := range s.Slice() {
-		if any(x) == any(v) {
+// IndexFunc returns the first index the predicate accepts, or NOT_FOUND.
+//
+// Revisions:
+//   - 2025-12-09 23:15: initial creation
+func (v *Vec[T]) IndexFunc(match func(T) bool) int {
+	for i, value := range v.data {
+		if match(value) {
 			return i
 		}
 	}
-	return -1
+
+	return NOT_FOUND
 }
 
-// LastIndexOf finds the last occurrence of an element
-// Returns -1 if not found.
-// ⚠️ CAUTION: Using any() for comparison may cause interface allocations.
-func (s *Vec[T]) LastIndexOf(v T) int {
-	for i := len(s.data) - 1; i >= 0; i-- {
-		if any(s.data[i]) == any(v) {
-			return i
-		}
-	}
-	return -1
+// ContainsFunc reports whether any element satisfies the predicate.
+//
+// Revisions:
+//   - 2025-12-09 23:15: initial creation
+func (v *Vec[T]) ContainsFunc(match func(T) bool) bool {
+	return v.IndexFunc(match) != NOT_FOUND
 }
 
-// CloneSlice returns a deep copy as new Slice
-func (s *Vec[T]) CloneSlice() *Vec[T] {
-	clone := NewVec[T](s.arena)
-	clone.AppendSlice(s.Slice())
+// Clone returns a heap copy of the elements, which outlives the arena.
+//
+// Revisions:
+//   - 2025-12-09 23:15: initial creation
+func (v *Vec[T]) Clone() []T {
+	return arena.CloneSlice(v.data)
+}
+
+// ToSlice returns a heap copy of the elements, which outlives the arena.
+//
+// Revisions:
+//   - 2025-12-09 23:15: initial creation
+func (v *Vec[T]) ToSlice() []T {
+	return arena.CloneSlice(v.data)
+}
+
+// CloneSlice returns a second vector in the same arena holding the same
+// elements.
+//
+// Revisions:
+//   - 2025-12-09 23:15: initial creation
+func (v *Vec[T]) CloneSlice() *Vec[T] {
+	clone := NewVec[T](v.arena)
+	clone.AppendSlice(v.data)
+
 	return clone
 }
 
-// ToSlice returns as normal []T (copy to heap)
-// ⚠️ HEAP ESCAPE: This function allocates on the heap.
-func (s *Vec[T]) ToSlice() []T {
-	dst := make([]T, len(s.data))
-	copy(dst, s.data)
-	return dst
-}
-
-// Keys returns an iterator over indices
-func (s *Vec[T]) Keys() iter.Seq[int] {
+// Keys returns an iterator over the indices.
+//
+// Revisions:
+//   - 2025-12-09 23:15: initial creation
+func (v *Vec[T]) Keys() iter.Seq[int] {
 	return func(yield func(int) bool) {
-		for i := range len(s.data) {
+		for i := range v.data {
 			if !yield(i) {
 				return
 			}
@@ -440,104 +421,102 @@ func (s *Vec[T]) Keys() iter.Seq[int] {
 	}
 }
 
-// -----------------------------
-// Iterator support
-// -----------------------------
-
-// LenForRange returns length for range loops
-func (s *Vec[T]) LenForRange() int {
-	return len(s.data)
-}
-
-// At returns element at index for range loops
-// Used internally by Go's range loop implementation.
-// Zero-allocation access to elements.
-func (s *Vec[T]) At(i int) T {
-	return s.data[i]
-}
-
-// All returns an iterator over values (Go 1.23+ iter.Seq)
-// Push-style iteration with early termination support.
+// All returns an iterator over the elements.
 //
-// Example:
-//
-// slice := NewVec[int](a)
-// slice.AppendSlice([]int{1, 2, 3, 4, 5})
-//
-// // Iterate all values
-// for v := range slice.All() {
-// fmt.Println(v)
-// }
-//
-// // Early termination
-// for v := range slice.All() {
-// if v > 3 {
-// break // stops iteration
-// }
-// fmt.Println(v)
-// }
-func (s *Vec[T]) All() iter.Seq[T] {
+// Revisions:
+//   - 2025-12-09 23:15: initial creation
+func (v *Vec[T]) All() iter.Seq[T] {
 	return func(yield func(T) bool) {
-		for _, v := range s.data {
-			if !yield(v) {
+		for _, value := range v.data {
+			if !yield(value) {
 				return
 			}
 		}
 	}
 }
 
-// All2 returns an iterator over index-value pairs (Go 1.23+ iter.Seq2)
-// Push-style iteration with indices and early termination.
+// All2 returns an iterator over index and element pairs.
 //
-// Example:
-//
-// slice := NewVec[string](a)
-// slice.AppendSlice([]string{"apple", "banana", "cherry"})
-//
-// for i, fruit := range slice.All2() {
-// fmt.Printf("Index %d: %s\n", i, fruit)
-// }
-func (s *Vec[T]) All2() iter.Seq2[int, T] {
+// Revisions:
+//   - 2025-12-09 23:15: initial creation
+func (v *Vec[T]) All2() iter.Seq2[int, T] {
 	return func(yield func(int, T) bool) {
-		for i, v := range s.data {
-			if !yield(i, v) {
+		for i, value := range v.data {
+			if !yield(i, value) {
 				return
 			}
 		}
 	}
 }
 
-// SliceIter provides pull-based iteration
-// Similar to channels or iterators in other languages.
-type SliceIter[T any] struct {
-	s     *Vec[T]
+// Iter returns a pull-based iterator over the elements.
+//
+// Revisions:
+//   - 2025-12-09 23:15: initial creation
+func (v *Vec[T]) Iter() VecIter[T] {
+	return VecIter[T]{vec: v}
+}
+
+// VecIter walks a vector one element at a time.
+type VecIter[T any] struct {
+	vec   *Vec[T]
 	index int
 }
 
-// Iter returns a pull-based iterator
-// Use Next() to pull values one by one.
+// Next returns the next element, reporting whether there was one.
 //
-// Example:
-//
-// slice := NewVec[int](a)
-// slice.AppendSlice([]int{10, 20, 30})
-//
-// iter := slice.Iter()
-// for v, ok := iter.Next(); ok; v, ok = iter.Next() {
-// fmt.Println(v) // prints 10, 20, 30
-// }
-func (s *Vec[T]) Iter() SliceIter[T] {
-	return SliceIter[T]{s: s, index: 0}
-}
-
-// Next returns the next element and whether it exists
-// Returns (zero_value, false) when iteration is complete.
-func (it *SliceIter[T]) Next() (T, bool) {
-	if it.index >= it.s.Len() {
+// Revisions:
+//   - 2025-12-09 23:15: initial creation
+func (it *VecIter[T]) Next() (T, bool) {
+	if it.index >= it.vec.Len() {
 		var zero T
+
 		return zero, false
 	}
-	val := it.s.At(it.index)
-	it.index++
-	return val, true
+
+	value := it.vec.At(it.index)
+	it.index = it.index + 1
+
+	return value, true
+}
+
+// IndexOf returns the first index holding value, or NOT_FOUND.
+//
+// It is a function rather than a method because finding a value needs T to be
+// comparable, and a Vec holds any type. The method form compared through the
+// empty interface, which allocated on every element and panicked outright on an
+// element type that is not comparable at all.
+//
+// Revisions:
+//   - 2025-12-09 23:15: initial creation
+func IndexOf[T comparable](v *Vec[T], value T) int {
+	for i, held := range v.data {
+		if held == value {
+			return i
+		}
+	}
+
+	return NOT_FOUND
+}
+
+// LastIndexOf returns the last index holding value, or NOT_FOUND.
+//
+// Revisions:
+//   - 2025-12-09 23:15: initial creation
+func LastIndexOf[T comparable](v *Vec[T], value T) int {
+	for i := len(v.data) - 1; i >= 0; i-- {
+		if v.data[i] == value {
+			return i
+		}
+	}
+
+	return NOT_FOUND
+}
+
+// Contains reports whether the vector holds value.
+//
+// Revisions:
+//   - 2025-12-09 23:15: initial creation
+func Contains[T comparable](v *Vec[T], value T) bool {
+	return IndexOf(v, value) != NOT_FOUND
 }

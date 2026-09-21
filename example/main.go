@@ -1,206 +1,184 @@
+// Command example demonstrates the arena API: vectors, maps, strings and the
+// io adapters, all allocated outside Go's garbage collector.
 package main
 
 import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/thebagchi/arena-go"
+	arena "github.com/thebagchi/arena-go"
 	"github.com/thebagchi/arena-go/alloc"
 	"github.com/thebagchi/arena-go/container"
 	arenaio "github.com/thebagchi/arena-go/io"
 )
 
-// Example struct for pointer demonstration
+const (
+	// ARENA_SIZE is the first chunk the demonstration arena maps.
+	ARENA_SIZE = 64 << 10
+	// PEOPLE is how many entries the map demonstration inserts.
+	PEOPLE = 20
+	// PREVIEW is how many entries the map demonstration prints.
+	PREVIEW = 3
+	// AGE_STEP spaces the generated ages apart.
+	AGE_STEP = 10
+	// ALICE_AGE, BOB_AGE and JOHN_AGE are the ages the sorting and encoding
+	// demonstrations use.
+	ALICE_AGE = 30
+	BOB_AGE   = 25
+	JOHN_AGE  = 28
+	// ALICE_NEW_AGE is the value the map demonstration overwrites with.
+	ALICE_NEW_AGE = 31
+)
+
+var (
+	// FIRST_NUMBERS and MORE_NUMBERS are the two batches the vector
+	// demonstration appends, kept as data rather than inline literals.
+	FIRST_NUMBERS = []int{1, 2, 3, 4, 5}
+	MORE_NUMBERS  = []int{6, 7, 8}
+)
+
+// Person is the struct the examples store in the arena.
 type Person struct {
 	Name string
 	Age  int
 }
 
-func serializePersonToJSON(a *arena.Arena, name string, age int) string {
-	// Create name in arena
-	arenaName := a.MakeString(name)
-
-	// Create Person in arena
-	person := arena.Ptr(a, Person{Name: arenaName, Age: age})
-
-	// Create Writer in arena
-	writer := arenaio.NewWriter(a)
-
-	// Serialize to JSON
-	encoder := json.NewEncoder(writer)
-	err := encoder.Encode(person)
-	if err != nil {
-		panic(err)
-	}
-
-	// Return the JSON as string
-	return string(writer.Bytes())
-}
-
+// main runs each demonstration against one arena and releases it at the end.
+//
+// Revisions:
+//   - 2025-12-10 20:59: initial creation
 func main() {
-	// Create an arena with 4KB memory
-	a := arena.New(alloc.NewBumpAllocator(4096))
+	a := arena.New(alloc.NewBumpAllocator(ARENA_SIZE))
 	defer a.Delete()
 
-	fmt.Println("=== ArenaSlice Examples ===")
+	showVec(a)
+	showMap(a)
+	showStrings(a)
+	showIO(a)
+}
 
-	// 1. Integer slice
-	fmt.Println("\n1. Integer Slice:")
-	intSlice := container.NewVec[int](a)
-	intSlice.AppendSlice([]int{1, 2, 3, 4, 5})
-	intSlice.Append(6, 7, 8) // Append multiple at once
+// showVec appends to an arena-backed vector and sorts it.
+//
+// Revisions:
+//   - 2025-12-10 20:59: initial creation
+func showVec(a *arena.Arena) {
+	fmt.Println("== vector")
 
-	fmt.Printf("Length: %d, Capacity: %d\n", intSlice.Len(), intSlice.Cap())
-	fmt.Printf("Contents: %v\n", intSlice.Slice())
+	numbers := container.NewVec[int](a)
+	numbers.AppendSlice(FIRST_NUMBERS)
+	numbers.Append(MORE_NUMBERS...)
 
-	// Demonstrate zero-GC append
-	for i := 9; i <= 15; i++ {
-		intSlice.AppendOne(i)
-	}
-	fmt.Printf("After appending more: %v\n", intSlice.Slice())
+	fmt.Printf(
+		"  contents: %v (len %d, cap %d)\n",
+		numbers.Slice(),
+		numbers.Len(),
+		numbers.Cap(),
+	)
 
-	// 2. String slice
-	fmt.Println("\n2. String Slice:")
-	stringSlice := container.NewVec[string](a)
-	stringSlice.Append("hello", "world")
-	stringSlice.AppendSlice([]string{"arena", "memory"})
-	stringSlice.Push("allocation") // Using Push alias
+	words := container.NewVec[string](a)
+	words.Append(a.MakeString("arena"), a.MakeString("memory"))
 
-	fmt.Printf("String slice: %v\n", stringSlice.Slice())
+	fmt.Printf("  index of arena: %d\n", container.IndexOf(words, "arena"))
 
-	// Demonstrate Contains and IndexOf
-	if stringSlice.Contains("arena") {
-		fmt.Printf("'arena' found at index: %d\n", stringSlice.IndexOf("arena"))
-	}
+	// Pointers into the arena are safe to store in arena memory; a pointer to a
+	// Go heap value would not be, because nothing here is a garbage collector
+	// root.
+	people := container.NewVec[*Person](a)
+	people.Append(
+		arena.Ptr(a, Person{Name: a.MakeString("Alice"), Age: ALICE_AGE}),
+		arena.Ptr(a, Person{Name: a.MakeString("Bob"), Age: BOB_AGE}),
+	)
 
-	// 3. Pointer to struct slice
-	fmt.Println("\n3. Pointer to Struct Slice:")
-
-	// Create some Person structs in the arena
-	person1 := arena.Ptr(a, Person{Name: "Alice", Age: 30})
-	person2 := arena.Ptr(a, Person{Name: "Bob", Age: 25})
-	person3 := arena.Ptr(a, Person{Name: "Charlie", Age: 35})
-
-	// Create a slice of pointers to Person
-	pointerSlice := container.NewVec[*Person](a)
-	pointerSlice.Append(person1, person2, person3)
-
-	fmt.Printf("Number of people: %d\n", pointerSlice.Len())
-
-	// Iterate and print
-	for i, personPtr := range pointerSlice.All2() {
-		fmt.Printf("Person %d: %s is %d years old\n", i+1, personPtr.Name, personPtr.Age)
-	}
-
-	// Demonstrate sorting (by age)
-	fmt.Println("\nSorting people by age:")
-	pointerSlice.Sort(func(a, b *Person) bool {
-		return a.Age < b.Age
+	people.Sort(func(l, r *Person) bool {
+		return l.Age < r.Age
 	})
 
-	for i, personPtr := range pointerSlice.All2() {
-		fmt.Printf("Person %d: %s is %d years old\n", i+1, personPtr.Name, personPtr.Age)
+	for i, person := range people.All2() {
+		fmt.Printf("  person %d: %s is %d\n", i+1, person.Name, person.Age)
+	}
+}
+
+// showMap fills an arena-backed map and reads it back.
+//
+// Revisions:
+//   - 2025-12-10 20:59: initial creation
+func showMap(a *arena.Arena) {
+	fmt.Println("== map")
+
+	ages := container.NewMap[string, int](a)
+	for i := range PEOPLE {
+		// Map copies string keys into the arena, so a key built on the Go heap
+		// is safe to hand over.
+		ages.Set(fmt.Sprintf("person%d", i), i*AGE_STEP)
 	}
 
-	// 4. Demonstrate Clone (heap escape)
-	fmt.Println("\n4. Clone to heap:")
-	clonedInts := intSlice.Clone()
-	fmt.Printf("Cloned integers: %v\n", clonedInts)
+	ages.Set("alice", ALICE_NEW_AGE)
+	ages.Delete("person0")
 
-	fmt.Println("\n=== ArenaMap Examples ===")
-
-	// 5. String to int map
-	fmt.Println("\n5. String to Int Map:")
-	stringMap := container.NewMap[string, int](a)
-	stringMap.Set("alice", 30)
-	stringMap.Set("bob", 25)
-	stringMap.Set("charlie", 35)
-
-	// Add more entries to trigger growth
-	for i := 0; i < 20; i++ {
-		stringMap.Set(fmt.Sprintf("person%d", i), i*10)
+	if age, found := ages.Get("alice"); found {
+		fmt.Printf("  alice: %d\n", age)
 	}
 
-	fmt.Printf("Map length: %d\n", stringMap.Len())
+	fmt.Printf("  entries: %d\n", ages.Len())
 
-	// Get values
-	if age, found := stringMap.Get("alice"); found {
-		fmt.Printf("Alice's age: %d\n", age)
-	}
+	shown := 0
 
-	// Range over map
-	fmt.Println("All entries:")
-	stringMap.Range(func(key string, value int) bool {
-		fmt.Printf("  %s: %d\n", key, value)
-		return true
-	})
-
-	stringMap.Set("alice", 31) // Update
-	stringMap.Delete("bob")    // Delete
-
-	fmt.Printf("After update/delete, length: %d\n", stringMap.Len())
-
-	// Demonstrate Clone (heap escape)
-	fmt.Println("\n6. Clone Map to heap:")
-	clonedMap := stringMap.Clone()
-	fmt.Printf("Cloned map: %v\n", clonedMap)
-
-	// Demonstrate iterators
-	fmt.Println("\n7. Iterator Examples:")
-
-	// Keys iterator
-	fmt.Print("Keys: ")
-	count := 0
-	for key := range stringMap.Keys() {
-		if count < 5 {
-			fmt.Printf("%s ", key)
-		}
-		count++
-	}
-	fmt.Printf("... (total: %d)\n", count)
-
-	// All iterator (key-value pairs)
-	fmt.Println("First 3 entries using All():")
-	count = 0
-	for key, val := range stringMap.All() {
-		if count < 3 {
-			fmt.Printf("  %s: %d\n", key, val)
-		}
-		count++
-		if count >= 3 {
+	for key, age := range ages.All() {
+		if shown >= PREVIEW {
 			break
 		}
+
+		fmt.Printf("  %s: %d\n", key, age)
+
+		shown = shown + 1
+	}
+}
+
+// showStrings runs a few arena-allocated string operations.
+//
+// Revisions:
+//   - 2025-12-10 20:59: initial creation
+func showStrings(a *arena.Arena) {
+	fmt.Println("== strings")
+
+	str := container.NewStr(a)
+	text := a.MakeString("  the quick brown fox  ")
+
+	fmt.Printf("  trimmed: %q\n", str.TrimSpace(text))
+	fmt.Printf("  title:   %q\n", str.Title(str.TrimSpace(text)))
+	fmt.Printf("  fields:  %v\n", str.Fields(text))
+	fmt.Printf("  joined:  %q\n", str.Join(str.Fields(text), "-"))
+}
+
+// showIO serialises a struct through the arena-backed writer and reads bytes
+// back through the reader.
+//
+// Revisions:
+//   - 2025-12-10 20:59: initial creation
+func showIO(a *arena.Arena) {
+	fmt.Println("== io")
+
+	writer := arenaio.NewWriter(a)
+	person := arena.Ptr(a, Person{Name: a.MakeString("John Doe"), Age: JOHN_AGE})
+
+	if err := json.NewEncoder(writer).Encode(person); err != nil {
+		fmt.Printf("  encode failed: %v\n", err)
+
+		return
 	}
 
-	// Pull-based iterator
-	fmt.Println("First 3 entries using Iter():")
-	iter := stringMap.Iter()
-	for i := 0; i < 3; i++ {
-		key, val, ok := iter.Next()
-		if !ok {
-			break
-		}
-		fmt.Printf("  %s: %d\n", key, val)
-	}
+	fmt.Printf("  json: %s", writer.String())
+	fmt.Printf("  arena-backed: %t\n", arena.OwnsSlice(a, writer.Bytes()))
 
-	// Arena is automatically cleaned up when main exits (defer a.Delete())
-	fmt.Println("\n=== Example completed successfully! ===")
+	reader := arenaio.NewReader(a, writer.Bytes())
+	buf := make([]byte, PEOPLE)
 
-	// Demonstrate JSON serialization
-	fmt.Println("\n=== JSON Serialization Example ===")
-	jsonStr := serializePersonToJSON(a, "John Doe", 28)
-	fmt.Printf("Serialized JSON: %s", jsonStr)
-
-	// Demonstrate Reader
-	fmt.Println("\n=== Reader Example ===")
-	data := []byte("arena-based reading")
-	reader := arenaio.NewReader(a, data)
-	readBuf := make([]byte, 10)
-	n, err := reader.Read(readBuf)
+	n, err := reader.Read(buf)
 	if err != nil {
-		fmt.Printf("Read error: %v\n", err)
-	} else {
-		fmt.Printf("Read %d bytes: %s\n", n, string(readBuf[:n]))
+		fmt.Printf("  read failed: %v\n", err)
+
+		return
 	}
-	fmt.Printf("Remaining bytes: %d\n", reader.Len())
+
+	fmt.Printf("  read %d bytes, %d left\n", n, reader.Len())
 }

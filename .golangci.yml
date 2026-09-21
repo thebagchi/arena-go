@@ -1,0 +1,238 @@
+# Enforces the mechanically checkable half of CLAUDE.md.
+#
+# Every linter here stands in for a rule that was previously enforced by remembering it.
+# The rules no off-the-shelf linter can express — the revision history on every
+# function, the leading underscore on unexported names, CAPITAL_SNAKE constants and
+# contiguous struct fields — have no checker in this repository yet; go.md, What nothing
+# checks, lists them.
+#
+# go.md, What the toolchain checks, states the rule that decides the split: a published
+# checker is preferred to one of our own. Each linter below was adopted on that basis in
+# the repository this configuration came from, proved against a fixture before it was
+# trusted — enabled alone, watched to report, watched to go quiet. This configuration was
+# written for golangci-lint 2.13.2; a different version may read a setting differently.
+#
+# Adopted here on 2026-09-21. New and edited code is held to it; existing code is not
+# swept, so a run over the whole tree reports findings that predate the rules. review.md
+# records them.
+version: "2"
+
+linters:
+  enable:
+    # Never discard an error.
+    - errcheck
+    # Errors are wrapped with %w, and compared with errors.Is rather than ==.
+    - errorlint
+    # ~40-50 lines is a split signal.
+    - funlen
+    # One level of abstraction per function, measured as cognitive complexity.
+    - gocognit
+    # Correctness. Its shadow analyser is deliberately off; see settings below.
+    - govet
+    # Lines wrap at 99 columns, a tab counted as eight.
+    - lll
+    # No magic numbers.
+    - mnd
+    # Nesting stops at ~3 levels.
+    - nestif
+    # Never name return values in a signature.
+    - nonamedreturns
+    # Correctness and style, including lowercase unpunctuated error strings (ST1005).
+    - staticcheck
+    # Dead code is deleted, not left "just in case".
+    - unused
+
+    # Each line names the CLAUDE.md or go.md rule it stands in for, and each was watched
+    # to fail against a fixture before it was trusted.
+
+    # context.Context is never stored in a struct.
+    - containedctx
+    # Sentinel errors keep Go's ErrXxx spelling.
+    - errname
+    # Constructor first, exported methods, then unexported helpers.
+    - funcorder
+    # No magic strings. mnd covers only numbers.
+    - goconst
+    # Consecutive declarations are grouped into one const or var block.
+    - grouper
+    # Accept interfaces, return structs.
+    - ireturn
+    # Never shadow a predeclared identifier. govet's shadow analyser does not catch
+    # these, because shadowing a builtin is legal Go rather than a suspicious
+    # re-declaration - which is why this needed its own linter.
+    - predeclared
+    # One receiver kind per type. This is the receiver half of "a struct this module
+    # declares is reached through a pointer"; parameters, results and fields are still
+    # unchecked here, because nothing published expresses them.
+    - recvcheck
+    # Four rules, listed under settings: boolean flag parameters, the parameter count,
+    # context first, and a doc comment on every exported declaration.
+    - revive
+    # Tests live in package foo_test.
+    - testpackage
+    # A helper that calls t.Fatal calls t.Helper() first.
+    - thelper
+    # Blank lines group related statements.
+    - wsl_v5
+
+  settings:
+    ireturn:
+      # A generic container returns its own type parameter, which ireturn reads
+      # as returning an interface. Every finding this produced here was that:
+      # Vec.Pop, Map.Get, SkipList.Min and the rest, whose whole purpose is to
+      # hand back the T they were instantiated with. The rule it stands in for,
+      # accept interfaces and return structs, is about concrete return types
+      # being narrowed to an interface, which is not what a type parameter is.
+      allow:
+        - anon
+        - error
+        - empty
+        - stdlib
+        - generic
+    grouper:
+      # CLAUDE.md, Naming: constants and package-level vars are grouped in one block.
+      const-require-grouping: true
+      var-require-grouping: true
+    revive:
+      rules:
+        # CLAUDE.md, Function design: no boolean flag parameters.
+        - name: flag-parameter
+        # CLAUDE.md, Function design: ~3-4 parameters, then a struct.
+        - name: argument-limit
+          arguments: [4]
+        # go.md, Signatures: context.Context is the first parameter.
+        - name: context-as-argument
+        # go.md, Signatures: error is the last result. Adopted 2026-09-19 by the sweep of
+        # the rules that had no published checker; it was the one real find in 22.
+        - name: error-return
+        # CLAUDE.md, Comments: every function has a doc comment. This reaches every
+        # exported declaration, not only functions, which costs one comment per const
+        # or var block rather than one per constant - measured, and compatible with the
+        # grouping rule above, which already requires one block.
+        - name: exported
+    funlen:
+      lines: 50
+      statements: 40
+    gocognit:
+      min-complexity: 20
+    govet:
+      # `shadow` is off, and this is the cost of a rule go.md argues for by name.
+      #
+      # go.md calls `if err := f(); err != nil` the preferred form and "what Go's own
+      # documentation reaches for". CLAUDE.md separately says "No shadowing". Every one
+      # of the seven sites this reported in the source repository was that exact form, with the
+      # outer err already dead — so the analyser makes the preferred form unusable in
+      # any function that already has an err, which is nearly all of them.
+      #
+      # CLAUDE.md's rule stands as a review rule, about an outer value that is still
+      # live. Nobody should switch this on expecting a clean run.
+      enable: []
+    lll:
+      # 99 columns with a tab counted as eight. The limit applies to Go source only;
+      # Markdown in this repository is not wrapped to a width. The two numbers here only
+      # mean something together: a tab counted as one lets an indented line pass the
+      # limit and render seven columns wider per indent level in any editor set to the
+      # usual eight, which is a limit nobody's eyes are using.
+      line-length: 99
+      tab-width: 8
+    nestif:
+      min-complexity: 4
+    staticcheck:
+      # golangci-lint's default turns off every ST check that this project happens to
+      # disagree with, and two it agrees with. ST1000 (a package comment somewhere) and
+      # ST1020 (a doc comment opening with the identifier) are rules go.md states and
+      # nothing was checking, so they are switched back on.
+      #
+      # ST1003 stays off: it reports ALL_CAPS names, which is every constant here.
+      # ST1021 and ST1022 duplicate ST1020 for types and variables in a wording that
+      # fights the revision-history block.
+      #
+      # ST1016 is ON. It was previously disabled on the grounds that go.md already
+      # required one receiver name per type — but no tool enforced that, so the rule
+      # was believed-covered and unchecked, which is the worst state a rule can be in.
+      checks: ["all", "-ST1003", "-ST1021", "-ST1022"]
+
+  exclusions:
+    # Never lint an auto-generated file. Nobody may edit one, so a finding in one is a
+    # finding nobody can act on: it is either noise forever or a standing exemption, and
+    # both teach a reader to ignore the report.
+    #
+    # strict rather than lax, deliberately. lax also treats a file as generated on looser
+    # hints, which means a hand-written file can slip out of the gate by mentioning the
+    # wrong phrase in a header comment - a check that stopped looking, reported as a clean
+    # run. strict wants the canonical marker Go itself looks for, and CLAUDE.md already
+    # requires that marker on the first line of every generated file, so a generated file
+    # in this repository always satisfies it and a hand-written one never does by accident.
+    #
+    # Measured in the source repository: with the exclusion disabled, planted violations
+    # in a generated .pb.go are reported; with it on, they are not. This repository has
+    # no generated files yet; the setting is here for the day it does.
+    generated: strict
+
+    rules:
+      # A test's table of inputs is full of literals that are the point of the test, not
+      # magic numbers hiding a meaning. Length and complexity limits are about code a
+      # reader has to follow; a table-driven test is read as data.
+      #
+      # goconst joined this list on 2026-09-21, on the same argument and measured the
+      # same way: of the 79 it reported here, the repeats were subtest names ("zero",
+      # "tabs", "unicode") and inputs ("hello", "world", "apple"). Hoisting those to
+      # named constants makes a case harder to read, because the reader then has to
+      # look up what the case is actually about. It stays on for non-test code, where a
+      # repeated string usually is a name that wants declaring once.
+      - path: _test\.go
+        linters:
+          - funlen
+          - gocognit
+          - goconst
+          - mnd
+
+formatters:
+  enable:
+    - gofmt
+    - gci
+
+  settings:
+    gci:
+      # Imports group as stdlib, external, then local.
+      sections:
+        - standard
+        - default
+        - prefix(github.com/thebagchi/arena-go)
+
+# Declined, with the reason, so nobody re-enables one expecting a clean run. Each was
+# proved against a fixture rather than judged from its description.
+#
+#   noinlineerr - forbids `if err := f(); err != nil`, which go.md's Control flow section
+#                 calls the preferred form. Not wrong, but the opposite of a stated rule.
+#   varnamelen  - could not be made to report CLAUDE.md's one-word locals, at defaults or
+#                 at min-name-length 4. A linter that stays quiet on the case it was
+#                 adopted for cannot be trusted to report the next one.
+#   revive
+#   var-naming  - expresses "exported names are PascalCase", but
+#                 also rejects CAPITAL_SNAKE package-level variables, which CLAUDE.md
+#                 requires. Measured: silent on CAPITAL_SNAKE constants, reports
+#                 CAPITAL_SNAKE vars. Adopting it would report every package-level var in
+#                 the project forever. Same family as staticcheck's ST1003, and narrower
+#                 than it - ST1003 objects to the constants too.
+#   decorder    - reports the same ungrouped declarations grouper already reports, and is
+#                 silent on the grouped form. Two linters for one rule is two places to
+#                 keep in step. Redundant rather than wrong.
+
+issues:
+  # One line can break two rules, and by default only the first is reported.
+  #
+  # Measured on a six-line fixture that broke four rules: with uniq-by-line at its
+  # default of true, containedctx, grouper and revive's flag-parameter were all silent,
+  # because unused and revive's exported rule reported on those lines first. Turning it
+  # off took the same file from 6 findings to 9. A gate that reports less is
+  # indistinguishable from a tree with less wrong in it, which is the failure
+  # a gate exists to prevent - and the same class as the cap below.
+  uniq-by-line: false
+
+  # No cap. golangci-lint stops at 50 findings per linter and 3 of a kind by default,
+  # and a run that stopped counting looks exactly like a run that found less - the
+  # output says nothing either way. Measured once at 45 reported against 48 present,
+  # which is how the backlog came to carry a number that was three short.
+  max-issues-per-linter: 0
+  max-same-issues: 0

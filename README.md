@@ -7,8 +7,41 @@ A high-performance, zero-GC memory allocator library for Go with generic contain
 - **Zero-GC Allocations**: Allocate memory outside Go's garbage collector using arena-based memory management
 - **Multiple Allocators**: Choose from Bump (fastest), Slab (fixed-size), or Buddy (flexible) allocation strategies
 - **Generic Containers**: Type-safe generic containers including Vec (dynamic arrays), Map, SkipList, Pool, and Str
-- **Thread-Safe**: All allocators and containers are safe for concurrent use
+- **Thread-Safe Allocators**: All three allocators are safe for concurrent use, as are `Map`, `SkipList` and `Pool`. See [Thread Safety](#thread-safety) for the containers that are not
+- **Zeroed Memory**: Every allocation comes back zeroed, without the allocation path paying for it
 - **Deterministic Memory Management**: Explicit control over memory lifecycle with Reset() and Delete()
+
+## The one rule
+
+Arena memory comes from `mmap` and **is invisible to Go's garbage collector**. A Go
+pointer whose only reference lives in arena memory does not keep its target alive: it
+will be collected and its storage reused while the arena still points at it. The race
+detector cannot see this, and it only shows up under memory pressure.
+
+What that rules out: storing a Go heap string, slice, map, channel, func, interface or
+pointer in arena memory. What it permits: values with no pointers at all, and pointers
+that lead back into the same arena.
+
+Bring outside data in by copying it:
+
+```go
+name := a.MakeString(userInput)   // copied into the arena, safe to store
+node := arena.Ptr(a, Node{})      // lives in the arena, safe to point at
+```
+
+```go
+// Wrong: the only reference to each string is arena memory.
+for i := range n {
+    vec.AppendOne(fmt.Sprintf("item%d", i))
+}
+
+// Right: the arena owns the bytes.
+for i := range n {
+    vec.AppendOne(a.MakeString(fmt.Sprintf("item%d", i)))
+}
+```
+
+`Map` copies string keys and string values for you. Anything else is yours to copy.
 
 ## Installation
 
@@ -118,46 +151,28 @@ largeVec.Append(100, 200, 300)
 
 ### Allocator Comparison
 
-#### Bump Allocator
-- **Speed:** ⚡⚡⚡ Fastest
-- **Memory Efficiency:** Good
-- **Fragmentation:** None
-- **Best For:** Batch operations, Ephemeral data
-- **Allocation Pattern:** Linear
-- **Free Strategy:** Reset whole arena
-- **Concurrency Overhead:** Very Low
-- **Memory Size:** Pre-allocated
-- **Use Case Example:** Request handlers
-- **Ideal Scenario:** Short-lived arenas
+Measured on 2026-09-21, Go 1.26.2, linux/amd64, five runs. `benchmarks.md` has the full
+set and how to reproduce it.
 
-#### Slab Allocator
-- **Speed:** ⚡⚡ Fast
-- **Memory Efficiency:** Excellent
-- **Fragmentation:** Minimal
-- **Best For:** Long-lived servers, Object pools
-- **Allocation Pattern:** Fixed-size classes
-- **Free Strategy:** Individual deallocation
-- **Concurrency Overhead:** Low
-- **Memory Size:** Grows as needed
-- **Use Case Example:** Connection pools
-- **Ideal Scenario:** High allocation/free turnover
+| | Bump | Slab | Buddy |
+| --- | --- | --- | --- |
+| `Alloc` | 12.4 ns/op | 23.0 ns/op | 54.1 ns/op |
+| Go heap allocations | 0 | 0 | 0 |
+| Frees individually | no | yes | yes |
+| Free strategy | reset the whole arena | per object | per block |
+| Allocation pattern | linear | fixed-size classes | power-of-2 blocks |
+| Fragmentation | none | minimal | low, blocks merge back |
+| Grows | yes, chunks double | yes | yes, unless fixed |
 
-#### Buddy Allocator
-- **Speed:** ⚡ Moderate
-- **Memory Efficiency:** Very Good
-- **Fragmentation:** Low
-- **Best For:** Mixed allocations, Variable sizes
-- **Allocation Pattern:** Power-of-2 sizes
-- **Free Strategy:** Individual deallocation
-- **Concurrency Overhead:** Low
-- **Memory Size:** Pre-allocated
-- **Use Case Example:** General purpose
-- **Ideal Scenario:** Variable workloads
+**Choose Bump if** allocations are short-lived, arrive in batches, or the arena is
+reset often. It is the fastest and frees nothing individually.
 
-**Quick Selection Guide:**
-- **Choose Bump if:** You have short-lived allocations, process batches, or frequently reset
-- **Choose Slab if:** Long-running service with frequent allocations/deallocations of similar sizes
-- **Choose Buddy if:** You need flexibility for varied-size allocations and don't want to reset often
+**Choose Slab if** the program allocates and frees objects of similar sizes over a
+long life, such as a connection or node pool.
+
+**Choose Buddy if** sizes vary and blocks must be freed one at a time. It costs more
+per allocation because it splits and merges blocks, which is what keeps
+fragmentation low.
 
 ## Core Operations
 
@@ -215,9 +230,11 @@ if val, ok := vec.Pop(); ok {
     fmt.Println(val) // 7
 }
 
-// Search
-idx := vec.IndexOf(3)
+// Search. These are functions rather than methods, because finding a value
+// needs the element type to be comparable and a Vec holds any type.
+idx := container.IndexOf(vec, 3)
 fmt.Println(idx) // 2
+fmt.Println(container.Contains(vec, 3)) // true
 
 // Clear
 vec.Clear()
@@ -413,25 +430,48 @@ if arena.OwnsSlice(a, slice) {
 
 ## Thread Safety
 
-All allocators and containers are thread-safe:
+**Safe for concurrent use:** all three allocators, and `Map`, `SkipList` and `Pool`.
+
+**Not safe for concurrent use:** `Vec`, `Queue`, `Stack`, `Buffer` and `Str`. These hand
+back interior references — `Slice()`, `Bytes()`, and the strings `Str` returns — which
+stay valid after any lock inside them would have been released, so a lock would promise
+a safety it could not deliver. Give each goroutine its own arena, or guard the container
+yourself.
 
 ```go
-var wg sync.WaitGroup
-a := arena.New(alloc.NewBumpAllocator(1024 * 4096))
+// Safe: the allocator serialises, and Map takes its own lock.
+a := arena.New(alloc.NewSlabAllocator())
 defer a.Delete()
 
-vec := container.NewVec[int](a)
+m := container.NewMap[string, int](a)
 
+var wg sync.WaitGroup
 for i := 0; i < 10; i++ {
     wg.Add(1)
     go func(n int) {
         defer wg.Done()
-        vec.Append(n)
+        m.Set(fmt.Sprintf("key%d", n), n)
     }(i)
 }
-
 wg.Wait()
-fmt.Println(vec.Len()) // 10
+```
+
+```go
+// Safe: one arena per goroutine, which is the usual shape and the fastest.
+var wg sync.WaitGroup
+for i := 0; i < 10; i++ {
+    wg.Add(1)
+    go func(n int) {
+        defer wg.Done()
+
+        a := arena.New(alloc.NewBumpAllocator(4096))
+        defer a.Delete()
+
+        vec := container.NewVec[int](a)
+        vec.AppendOne(n)
+    }(i)
+}
+wg.Wait()
 ```
 
 ## Examples
@@ -652,16 +692,22 @@ go run ./example/main.go
 
 ## Package Structure
 
-- `arena.go` - Core arena functionality and allocator interface
-- `object.go` - Basic object allocation utilities
-- `io/` - I/O operations (Reader, Writer)
-- `container/` - Generic containers (Vec, Map, SkipList, Pool, Str)
-- `alloc/` - Allocator implementations
-  - `bump.go` - Bump allocator (linear allocation)
-  - `slab.go` - Slab allocator (fixed-size object pools with 17 size classes)
-  - `buddy.go` - Buddy allocator (power-of-2 flexible allocation)
-  - `cont/` - Internal data structures (List, Cont)
-- `res/` - Resource management (page allocation)
+- `arena.go` - the Arena type, the Allocator contract, and the generic helpers
+- `limits.go` - the bounds those helpers enforce
+- `alloc/` - allocator implementations
+  - `bump.go` - bump allocator, a cursor over growing chunks
+  - `slab.go` - slab allocator, size classes with individual free
+  - `buddy.go` - buddy allocator, splitting and merging power-of-2 blocks
+  - `chunk.go` - one buddy chunk and its free-block tree
+- `res/` - the raw memory everything is built on
+  - `mem.go` - mmap and munmap
+  - `page.go` - one mapping, with its bounds
+  - `table.go` - a set of pages, and ownership lookup
+  - `bump.go` - a cursor over a page table
+  - `stats.go`, `errors.go`, `utilities.go`
+- `container/` - Vec, Map, SkipList, Pool, Queue, Stack, Buffer, Str
+- `io/` - Reader and Writer over arena memory
+- `test/`, `container/test/`, `io/test/` - the suites
 
 ## License
 
