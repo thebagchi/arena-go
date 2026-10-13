@@ -5,8 +5,9 @@
 // invisible to the garbage collector, so a Go pointer, string, slice, map,
 // channel, func or interface stored in one of these containers is not kept alive
 // by being stored there. Element types that contain no pointers are always safe,
-// and so are pointers back into the same arena. Map copies string keys into the
-// arena for this reason; for any other pointer-bearing type the caller copies.
+// and so are pointers back into the same arena. Map and SkipList copy string
+// keys and string values for this reason; for any other pointer-bearing type
+// the caller copies.
 //
 // Map, SkipList and Pool are safe for concurrent use. Vec, Queue, Stack, Buffer
 // and Str are not: their operations hand back interior pointers and slices that

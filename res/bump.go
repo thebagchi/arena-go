@@ -81,14 +81,19 @@ func (b *Bump) Alloc(size, align uint64) unsafe.Pointer {
 //
 // Revisions:
 //   - 2026-09-21 11:14: initial creation
+//   - 2026-10-13 16:25: a size that does not fit in an int reports exhaustion
 func (b *Bump) TryAlloc(size, align uint64) (unsafe.Pointer, bool) {
-	size, align = Request(size, align)
+	size, align, fits := Request(size, align)
 
 	b.mtx.Lock()
 	defer b.mtx.Unlock()
 
 	if b.deleted {
 		panic(ErrDeleted)
+	}
+
+	if !fits {
+		return nil, false
 	}
 
 	if len(b.chunks) == 0 && !b._Grow(int(size+align)) {
@@ -114,9 +119,14 @@ func (b *Bump) TryAlloc(size, align uint64) (unsafe.Pointer, bool) {
 //
 // Revisions:
 //   - 2026-09-21 11:17: initial creation
+//   - 2026-10-13 16:25: panic with ErrDeleted after Delete, as Alloc does
 func (b *Bump) Reset() {
 	b.mtx.Lock()
 	defer b.mtx.Unlock()
+
+	if b.deleted {
+		panic(ErrDeleted)
+	}
 
 	for _, chunk := range b.chunks {
 		if chunk.dirty > 0 {
@@ -147,6 +157,20 @@ func (b *Bump) Delete() error {
 	return b.table.Delete()
 }
 
+// Remove is a no-op apart from the deleted check. A bump allocator frees only
+// in whole arenas, and a call after Delete is the same lifetime bug as Alloc.
+//
+// Revisions:
+//   - 2026-10-13 16:25: initial creation
+func (b *Bump) Remove(ptr unsafe.Pointer) {
+	b.mtx.Lock()
+	defer b.mtx.Unlock()
+
+	if b.deleted {
+		panic(ErrDeleted)
+	}
+}
+
 // Owns reports whether ptr came from this allocator.
 //
 // Revisions:
@@ -175,19 +199,25 @@ func (b *Bump) Mappings() int {
 //
 // Revisions:
 //   - 2026-09-21 11:22: initial creation
+//   - 2026-10-13 16:25: reject a request by the room left, so a size that would
+//     wrap the end address is not treated as fitting
 func (b *Bump) _FromChunk(chunk *_Chunk, size, align uint64) (unsafe.Pointer, bool) {
 	var (
 		base    = chunk.page.Start()
 		aligned = AlignUp(base+uintptr(chunk.used), uintptr(align))
-		end     = aligned + uintptr(size)
 	)
 
-	if end > chunk.page.End() {
+	if aligned < base || aligned >= chunk.page.End() {
+		return nil, false
+	}
+
+	room := uint64(chunk.page.End() - aligned)
+	if size > room {
 		return nil, false
 	}
 
 	offset := int(aligned - base)
-	chunk.used = int(end - base)
+	chunk.used = offset + int(size)
 
 	if chunk.used > chunk.dirty {
 		chunk.dirty = chunk.used

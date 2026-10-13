@@ -18,8 +18,9 @@ import (
 // hands out mmap addresses downward, so every new page sorts before all the
 // others and the insert moves the whole slice.
 //
-// The mutex guards every field below it. A PageTable is safe for concurrent use;
-// the allocators built on it are not, unless they say so.
+// The mutex guards every field below it. A PageTable is safe for concurrent use.
+// The allocators built on it are too: each holds its own mutex and takes this
+// one only while already holding that.
 type PageTable struct {
 	mtx    sync.Mutex
 	pages  []*Page

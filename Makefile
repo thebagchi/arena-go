@@ -28,7 +28,7 @@ GO_FILES    := $(shell find . -type f -name '*.go' -not -path './.git/*' \
 # Directories holding Go files that differ from HEAD or are untracked: what `quick` looks at.
 CHANGED_DIRS := $(shell { git diff --name-only HEAD -- '*.go'; git ls-files --others --exclude-standard -- '*.go'; } 2>/dev/null | xargs -r -n1 dirname | sort -u)
 
-.PHONY: all quick check regression fmt fmt-check vet lint lint-new staticcheck test test-changed race short bench vuln tidy tools clean help
+.PHONY: all quick check regression fmt fmt-check vet lint lint-new staticcheck test test-changed race short bench vuln tidy tools caseasm clean help
 
 all: check
 
@@ -98,7 +98,7 @@ race:
 
 ## regression: the tests guarding the defects found in review
 regression:
-	$(GO) test $(TEST_FLAGS) -race -timeout 5m -run 'Test(Slab|Buddy|Bump|Alloc|Pool|Map|Arena|Writer|MakeString)' ./test/
+	$(GO) test $(TEST_FLAGS) -race -timeout 5m -run 'Test(Slab|Buddy|Bump|Alloc|Pool|Map|Arena|Writer|MakeString|Vec|Buffer|Skip|UseAfter|TryAlloc)' ./test/
 
 ## bench: run benchmarks (override with BENCH=BenchmarkBump)
 bench:
@@ -117,6 +117,10 @@ tidy:
 tools:
 	$(GO) mod download
 	$(GO) tool golangci-lint --version
+
+## caseasm: regenerate the amd64 case-conversion kernels
+caseasm:
+	$(GO) generate ./container/
 
 ## clean: remove build and profile artefacts
 clean:

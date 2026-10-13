@@ -1,6 +1,7 @@
 package container_test
 
 import (
+	"bytes"
 	"math/rand/v2"
 	"strings"
 	"testing"
@@ -65,6 +66,41 @@ func TestStr_ASCIIEdgeLengths(t *testing.T) {
 	for _, c := range []byte{'A', 'Z', 'a', 'z', ' ', '@', '[', 0x80} {
 		for _, length := range []int{0, 1, 7, 8, 9, 15, 16, 17, 23, 24, 25} {
 			checkAll(t, str, strings.Repeat(string([]byte{c}), length))
+		}
+	}
+}
+
+// TestStr_WideCase covers the lengths where the amd64 kernels take over from
+// the word path, and a non-ASCII byte sitting on a vector boundary.
+//
+// Revisions:
+//   - 2026-10-13 17:30: initial creation
+func TestStr_WideCase(t *testing.T) {
+	a := arena.New(alloc.NewBumpAllocator(4 << 20))
+	defer a.Delete()
+
+	str := container.NewStr(a)
+
+	for _, c := range []byte{'A', 'Z', 'a', 'z', 'M', ' '} {
+		for _, length := range []int{63, 64, 65, 80, 96, 127, 128, 129, 160, 256, 4096} {
+			checkAll(t, str, strings.Repeat(string([]byte{c}), length))
+		}
+	}
+
+	for _, at := range []int{15, 16, 31, 32, 63, 64, 127, 128, 255} {
+		buf := bytes.Repeat([]byte{'A'}, 320)
+		buf[at] = 0x80
+		got := str.ToLower(string(buf))
+
+		for i := range buf {
+			want := buf[i]
+			if want >= 'A' && want <= 'Z' {
+				want += 'a' - 'A'
+			}
+
+			if got[i] != want {
+				t.Fatalf("ToLower byte %d = %#x, want %#x", i, got[i], want)
+			}
 		}
 	}
 }

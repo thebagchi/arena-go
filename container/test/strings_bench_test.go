@@ -434,6 +434,55 @@ func BenchmarkString_ZeroCopyToUpper(b *testing.B) {
 	}
 }
 
+// LONG_TEXT is a 4 KB ASCII buffer, the length perf.md used when it compared a
+// byte scan with a word scan.
+const (
+	LONG_TEXT = 4096
+)
+
+// BenchmarkString_ToLowerLong times a full rewrite of 4 KB of uppercase ASCII.
+//
+// The short ZeroCopy benches are a few dozen bytes, which is under the length
+// where a wider kernel can pay for itself. This one is the length that can.
+//
+// Revisions:
+//   - 2026-10-13 17:10: initial creation
+func BenchmarkString_ToLowerLong(b *testing.B) {
+	src := strings.Repeat("A", LONG_TEXT)
+	bump := alloc.NewBumpAllocator(1 << 20)
+	a := arena.New(bump)
+	str := container.NewStr(a)
+
+	b.SetBytes(LONG_TEXT)
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		bump.Reset()
+
+		_ = str.ToLower(src)
+	}
+}
+
+// BenchmarkString_ToUpperLong times a full rewrite of 4 KB of lowercase ASCII.
+//
+// Revisions:
+//   - 2026-10-13 17:10: initial creation
+func BenchmarkString_ToUpperLong(b *testing.B) {
+	src := strings.Repeat("a", LONG_TEXT)
+	bump := alloc.NewBumpAllocator(1 << 20)
+	a := arena.New(bump)
+	str := container.NewStr(a)
+
+	b.SetBytes(LONG_TEXT)
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		bump.Reset()
+
+		_ = str.ToUpper(src)
+	}
+}
+
 // Title Benchmarks
 //
 // There is no standard-library counterpart to benchmark against: strings.Title

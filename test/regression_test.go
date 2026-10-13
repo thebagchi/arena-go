@@ -25,6 +25,9 @@ const (
 	// DEADLOCK_TIMEOUT is how long the concurrency tests wait before calling a
 	// stall a deadlock. A working allocator finishes these in under a second.
 	DEADLOCK_TIMEOUT = 20 * time.Second
+	// REENTRY_TIMEOUT is how long a map callback is given to call back into the
+	// map. Taking the write lock while the read lock is held never returns.
+	REENTRY_TIMEOUT = 2 * time.Second
 	// SENTINEL is a recognisable value written to memory that is then freed, so
 	// that a later allocation handing it back unzeroed is obvious.
 	SENTINEL = 0xDEADBEEF
@@ -177,10 +180,22 @@ func TestAllocAfterDeletePanics(t *testing.T) {
 	}{
 		{
 			name: "bump",
-			make: func() arena.Allocator { return alloc.NewBumpAllocator(4096) },
+			make: func() arena.Allocator {
+				return alloc.NewBumpAllocator(4096)
+			},
 		},
-		{name: "slab", make: func() arena.Allocator { return alloc.NewSlabAllocator() }},
-		{name: "buddy", make: func() arena.Allocator { return alloc.NewBuddyAllocator() }},
+		{
+			name: "slab",
+			make: func() arena.Allocator {
+				return alloc.NewSlabAllocator()
+			},
+		},
+		{
+			name: "buddy",
+			make: func() arena.Allocator {
+				return alloc.NewBuddyAllocator()
+			},
+		},
 	}
 
 	for _, tc := range cases {
@@ -551,6 +566,386 @@ func TestMakeStringCopiesLargeInput(t *testing.T) {
 
 	if !arena.OwnsString(a, copied) {
 		t.Error("MakeString returned a string that is not arena memory")
+	}
+}
+
+// TestVecGrowthLeaks covers an empty backing array: freeing asked for the
+// address of the first element, and a slice of length zero has none, so the
+// block a fresh vector starts with stayed allocated when the vector grew.
+//
+// Revisions:
+//   - 2026-10-13 16:20: initial creation
+func TestVecGrowthLeaks(t *testing.T) {
+	slab := alloc.NewSlabAllocator()
+	defer slab.Delete()
+
+	a := arena.New(slab)
+
+	warmup := container.NewVec[int64](a)
+	warmup.AppendSlice(make([]int64, 32))
+	arena.DeleteSlice(a, warmup.Slice())
+
+	mapped := slab.Stats().Mapped
+
+	for range 64 {
+		vec := container.NewVec[int64](a)
+		vec.AppendSlice(make([]int64, 32))
+		arena.DeleteSlice(a, vec.Slice())
+	}
+
+	if got := slab.Stats().Mapped; got > mapped {
+		t.Errorf(
+			"growing an empty vec leaked its first block: mapped %d, was %d",
+			got,
+			mapped,
+		)
+	}
+}
+
+// TestBufferGrowthLeaks covers the same empty-backing leak in a buffer. The
+// first block is 32 bytes, and a page holds 128 of them, so the loop has to
+// pass that before the footprint moves.
+//
+// Revisions:
+//   - 2026-10-13 16:20: initial creation
+func TestBufferGrowthLeaks(t *testing.T) {
+	slab := alloc.NewSlabAllocator()
+	defer slab.Delete()
+
+	a := arena.New(slab)
+
+	warmup := container.NewBuffer(a)
+	warmup.Append(make([]byte, 64))
+	arena.DeleteSlice(a, warmup.Bytes())
+
+	mapped := slab.Stats().Mapped
+
+	for range 200 {
+		buf := container.NewBuffer(a)
+		buf.Append(make([]byte, 64))
+		arena.DeleteSlice(a, buf.Bytes())
+	}
+
+	if got := slab.Stats().Mapped; got > mapped {
+		t.Errorf(
+			"growing an empty buffer leaked its first block: mapped %d, was %d",
+			got,
+			mapped,
+		)
+	}
+}
+
+// TestPoolRejectsDoubleFree covers a double free: freeing an object twice
+// pushed it onto the free list twice, so the next two allocations returned it.
+//
+// Revisions:
+//   - 2026-10-13 16:20: initial creation
+func TestPoolRejectsDoubleFree(t *testing.T) {
+	a := arena.New(alloc.NewSlabAllocator())
+	defer a.Delete()
+
+	pool := container.NewPool[int64](a)
+	keep := pool.Alloc()
+	freed := pool.Alloc()
+
+	pool.Free(freed)
+	pool.Free(freed)
+
+	first, second := pool.Alloc(), pool.Alloc()
+	if first == second {
+		t.Errorf("a double free handed %p out twice", first)
+	}
+
+	if first == keep || second == keep {
+		t.Error("an allocation returned an object that is still live")
+	}
+}
+
+// TestSkipListDeleteReuses covers a leak: Delete unlinked the node and left it
+// allocated, so a list that was filled and emptied in a loop mapped a fresh
+// set of pages every cycle.
+//
+// Revisions:
+//   - 2026-10-13 16:20: initial creation
+//   - 2026-10-13 16:35: allow a few pages for a tower size class first met
+//     during the measured passes; a leaked node was tens of kilobytes a pass
+func TestSkipListDeleteReuses(t *testing.T) {
+	const slack = 8 * 4096
+
+	slab := alloc.NewSlabAllocator()
+	defer slab.Delete()
+
+	list := container.NewSkipList[int, int](arena.New(slab))
+
+	// Two passes. Tower height is random, so a later pass can meet a size
+	// class an earlier pass never asked for, and that class is one page.
+	for range 2 {
+		for i := range 1000 {
+			list.Insert(i, i)
+		}
+
+		for i := range 1000 {
+			list.Delete(i)
+		}
+	}
+
+	mapped := slab.Stats().Mapped
+
+	for range 5 {
+		for i := range 1000 {
+			list.Insert(i, i)
+		}
+
+		for i := range 1000 {
+			list.Delete(i)
+		}
+	}
+
+	if got := slab.Stats().Mapped; got > mapped+slack {
+		t.Errorf(
+			"deleted skip-list nodes were not reused: mapped %d, was %d",
+			got,
+			mapped,
+		)
+	}
+}
+
+// TestSkipListStringSurvivesGC covers the collector hazard for a skip list:
+// string keys are stored as headers in arena memory, which the collector does
+// not scan, so the bytes can be reused while the node still points at them.
+//
+// Revisions:
+//   - 2026-10-13 16:20: initial creation
+func TestSkipListStringSurvivesGC(t *testing.T) {
+	const entries = 20000
+
+	a := arena.New(alloc.NewBumpAllocator(1 << 24))
+	defer a.Delete()
+
+	list := container.NewSkipList[string, int](a)
+	key := func(i int) string {
+		return fmt.Sprintf(
+			"person-%06d-%s",
+			i,
+			"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+		)
+	}
+
+	for i := range entries {
+		list.Insert(key(i), i)
+	}
+
+	_ChurnHeap(entries)
+
+	missed := 0
+
+	for i := range entries {
+		if value, found := list.Search(key(i)); !found || value != i {
+			missed = missed + 1
+		}
+	}
+
+	if missed > 0 {
+		t.Errorf(
+			"%d of %d keys did not survive a garbage collection",
+			missed,
+			entries,
+		)
+	}
+}
+
+// TestMapStringReplaceReuses covers a leak: replacing a string value copied the
+// new bytes into the arena and left the previous copy allocated.
+//
+// Revisions:
+//   - 2026-10-13 16:20: initial creation
+func TestMapStringReplaceReuses(t *testing.T) {
+	slab := alloc.NewSlabAllocator()
+	defer slab.Delete()
+
+	m := container.NewMap[int, string](arena.New(slab))
+	text := func(i int) string {
+		return fmt.Sprintf(
+			"value-%06d-%s",
+			i,
+			"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+		)
+	}
+
+	for i := range 64 {
+		m.Set(1, text(i))
+	}
+
+	mapped := slab.Stats().Mapped
+
+	for i := range 200 {
+		m.Set(1, text(i+64))
+	}
+
+	if got := slab.Stats().Mapped; got > mapped {
+		t.Errorf(
+			"replaced map strings were not freed: mapped %d, was %d",
+			got,
+			mapped,
+		)
+	}
+}
+
+// TestMapRangeReenters covers a deadlock: Range held the read lock across the
+// callback, so a visit that called Set never took the write lock.
+//
+// Revisions:
+//   - 2026-10-13 16:20: initial creation
+func TestMapRangeReenters(t *testing.T) {
+	a := arena.New(alloc.NewBumpAllocator(1 << 16))
+	defer a.Delete()
+
+	m := container.NewMap[int, int](a)
+	m.Set(1, 1)
+
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+
+		m.Range(func(int, int) bool {
+			m.Set(2, 2)
+
+			return false
+		})
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(REENTRY_TIMEOUT):
+		t.Fatal("Range deadlocked: visit called Set while the read lock was held")
+	}
+}
+
+// TestMapIterStopsAfterWrite covers an iterator that keeps its place across a
+// write. Set can rehash the chains the iterator is walking, and Delete can free
+// the node it still holds.
+//
+// Revisions:
+//   - 2026-10-13 16:20: initial creation
+func TestMapIterStopsAfterWrite(t *testing.T) {
+	a := arena.New(alloc.NewBumpAllocator(1 << 16))
+	defer a.Delete()
+
+	m := container.NewMap[int, int](a)
+
+	for i := range 4 {
+		m.Set(i, i)
+	}
+
+	it := m.Iter()
+	if _, _, found := it.Next(); !found {
+		t.Fatal("the map holds entries the iterator did not return")
+	}
+
+	m.Set(99, 99)
+
+	defer func() {
+		if recover() == nil {
+			t.Fatal("Next kept walking after Set")
+		}
+	}()
+
+	it.Next()
+}
+
+// TestUseAfterDeletePanics covers Reset and Remove after Delete. Alloc already
+// panics with ErrDeleted; these two returned, which is the same lifetime bug
+// absorbed instead of reported.
+//
+// Revisions:
+//   - 2026-10-13 16:20: initial creation
+func TestUseAfterDeletePanics(t *testing.T) {
+	cases := []struct {
+		name string
+		make func() arena.Allocator
+	}{
+		{
+			name: "bump",
+			make: func() arena.Allocator {
+				return alloc.NewBumpAllocator(4096)
+			},
+		},
+		{
+			name: "slab",
+			make: func() arena.Allocator {
+				return alloc.NewSlabAllocator()
+			},
+		},
+		{
+			name: "buddy",
+			make: func() arena.Allocator {
+				return alloc.NewBuddyAllocator()
+			},
+		},
+	}
+
+	var sink byte
+
+	ops := []struct {
+		name string
+		call func(arena.Allocator)
+	}{
+		{
+			name: "Reset",
+			call: func(a arena.Allocator) {
+				a.Reset()
+			},
+		},
+		{
+			name: "Remove",
+			call: func(a arena.Allocator) {
+				a.Remove(unsafe.Pointer(&sink))
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		for _, op := range ops {
+			t.Run(tc.name+" "+op.name, func(t *testing.T) {
+				a := tc.make()
+				a.Delete()
+
+				defer func() {
+					recovered, _ := recover().(error)
+					if !errors.Is(recovered, arena.ErrDeleted) {
+						t.Errorf(
+							"%s after Delete recovered %v, want %v",
+							op.name,
+							recovered,
+							arena.ErrDeleted,
+						)
+					}
+				}()
+
+				op.call(a)
+			})
+		}
+	}
+}
+
+// TestTryAllocRejectsOverflow covers a wrapped cursor: the end of a request was
+// computed with an unchecked add, so a size that overflowed uintptr looked like
+// it fitted and the next allocation overlapped it.
+//
+// Revisions:
+//   - 2026-10-13 16:20: initial creation
+func TestTryAllocRejectsOverflow(t *testing.T) {
+	bump := alloc.NewBumpAllocator(4096)
+	defer bump.Delete()
+
+	ptr, ok := bump.TryAlloc(^uint64(0), 8)
+	if ok {
+		t.Fatalf("TryAlloc of an overflowing size returned %p", ptr)
+	}
+
+	if small := bump.Alloc(8, 8); small == nil {
+		t.Fatal("a rejected huge request left the allocator unusable")
 	}
 }
 

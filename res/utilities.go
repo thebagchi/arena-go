@@ -64,12 +64,16 @@ func AlignUp(addr, align uintptr) uintptr {
 }
 
 // SlicePtr returns a pointer to a slice's backing array, or nil when the slice
-// is empty.
+// has none. A length of zero still has a backing array when the capacity does
+// not: that is the block a fresh vector or buffer starts with, and freeing it
+// by the first element used to miss it.
 //
 // Revisions:
 //   - 2025-12-10 20:59: initial creation
+//   - 2026-10-13 16:25: a slice of length zero and non-zero capacity still names
+//     its backing array
 func SlicePtr[T any](slice []T) unsafe.Pointer {
-	if len(slice) == 0 {
+	if cap(slice) == 0 {
 		return nil
 	}
 
@@ -106,9 +110,14 @@ func UnsafeString(b []byte) string {
 // address, a zero alignment means the default, and every alignment calculation
 // here masks with align-1, which is only correct for a power of two.
 //
+// The bool is false when size or align cannot be expressed as an int. Callers
+// add size to an address, and a value that does not fit wraps that add into a
+// small offset the end check then accepts.
+//
 // Revisions:
 //   - 2025-12-10 20:59: initial creation
-func Request(size, align uint64) (uint64, uint64) {
+//   - 2026-10-13 16:25: reject a size or alignment that does not fit in an int
+func Request(size, align uint64) (uint64, uint64, bool) {
 	if size == 0 {
 		size = 1
 	}
@@ -121,5 +130,10 @@ func Request(size, align uint64) (uint64, uint64) {
 		align = RoundPow2(align)
 	}
 
-	return size, align
+	ceiling := uint64(^uint(0) >> 1)
+	if size > ceiling || align > ceiling {
+		return 0, 0, false
+	}
+
+	return size, align, true
 }

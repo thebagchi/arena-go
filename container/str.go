@@ -26,6 +26,13 @@ const (
 	// ONE_PER_BYTE has the low bit of every byte set, for broadcasting a byte
 	// across a word.
 	ONE_PER_BYTE = 0x0101010101010101
+	// BYTE_VALUES is one past the largest value a byte can hold, so a shift
+	// that reaches it has left its lane.
+	BYTE_VALUES = 256
+	// BIT_PAIR is the shift that spreads a lane's high bit into the next two bits.
+	BIT_PAIR = 2
+	// BIT_NIBBLE is the shift that spreads those bits through the rest of the byte.
+	BIT_NIBBLE = 4
 	// ASCII_SPACE is a bit per whitespace byte: tab, newline, vertical tab, form
 	// feed, carriage return and space. All six are below 64, so the whole set
 	// fits in one word and the test needs no memory at all.
@@ -35,6 +42,16 @@ const (
 	// FIELDS_GUESS is the capacity a single-pass split starts with, before it
 	// grows in the arena.
 	FIELDS_GUESS = 8
+	// SSE_BYTES is the step of the amd64 SSE2 case rewrite.
+	SSE_BYTES = 16
+	// AVX_BYTES is the step of the amd64 AVX2 case rewrite.
+	AVX_BYTES = 32
+	// SSE_MIN is the shortest tail that leaves the word path for SSE2. Below
+	// this, the call costs more than the extra bytes per step.
+	SSE_MIN = 64
+	// AVX_MIN is the shortest tail that leaves SSE2 for AVX2. The 4 KB case is
+	// the one that justifies the wider step; shorter tails stay on SSE2.
+	AVX_MIN = 128
 )
 
 // Str holds an arena and offers the strings package's operations over it.
@@ -867,6 +884,8 @@ func (s *Str) _FieldsASCII(str string) []string {
 //
 // Revisions:
 //   - 2026-09-21 17:32: initial creation
+//   - 2026-10-13 17:05: the tail after the first match is rewritten eight bytes
+//     at a time, with the same lane arithmetic the scan already uses
 func (s *Str) _MapCase(str string, lo, hi byte, delta int) string {
 	src := res.UnsafeBytes(str)
 
@@ -878,16 +897,21 @@ func (s *Str) _MapCase(str string, lo, hi byte, delta int) string {
 	dst := arena.MakeSlice[byte](s.arena, len(src), len(src))
 	copy(dst, src[:at])
 
-	for i := at; i < len(src); i++ {
-		c := src[i]
-		if c >= lo && c <= hi {
-			c = byte(int(c) + delta)
-		}
-
-		dst[i] = c
+	span := &_CaseSpan{
+		lo:    lo,
+		hi:    hi,
+		delta: delta,
 	}
+	_RewriteCase(dst[at:], src[at:], span)
 
 	return res.UnsafeString(dst)
+}
+
+// _CaseSpan is the byte range a case conversion shifts, and by how much.
+type _CaseSpan struct {
+	lo    byte
+	hi    byte
+	delta int
 }
 
 // _FirstInRange returns the first index holding a byte in [lo,hi], or NOT_FOUND.
@@ -925,6 +949,104 @@ func _FirstInRange(src []byte, lo, hi byte) int {
 	}
 
 	return NOT_FOUND
+}
+
+// _RewriteCase writes src into dst, shifting every byte in the span by its delta.
+//
+// On amd64 a long ASCII tail is rewritten 16 or 32 bytes at a time. Whole
+// words cover what that leaves, while the input stays ASCII and the shift
+// cannot carry out of its lane. A non-ASCII word, or a delta that would
+// overflow a byte, drops to one byte at a time for the rest.
+//
+// Revisions:
+//   - 2026-10-13 17:05: initial creation
+//   - 2026-10-13 17:25: a long ASCII tail goes through the amd64 wide kernels
+//     before the word path
+func _RewriteCase(dst []byte, src []byte, span *_CaseSpan) {
+	done := _RewriteWide(dst, src, span)
+	dst = dst[done:]
+	src = src[done:]
+
+	i := 0
+	if _ShiftFits(span) {
+		for ; i+WORD_BYTES <= len(src); i += WORD_BYTES {
+			w := binary.LittleEndian.Uint64(src[i:])
+			if w&HIGH_BITS != 0 {
+				break
+			}
+
+			binary.LittleEndian.PutUint64(dst[i:], _ShiftWord(w, span))
+		}
+	}
+
+	_RewriteBytes(dst[i:], src[i:], span)
+}
+
+// _RewriteBytes writes src into dst one byte at a time.
+//
+// Revisions:
+//   - 2026-10-13 17:05: initial creation
+func _RewriteBytes(dst []byte, src []byte, span *_CaseSpan) {
+	for i := range src {
+		c := src[i]
+		if c >= span.lo && c <= span.hi {
+			c = byte(int(c) + span.delta)
+		}
+
+		dst[i] = c
+	}
+}
+
+// _ShiftFits reports whether adding the span's delta to a byte inside it stays
+// inside that byte, so a word-wide add cannot carry into the next lane.
+//
+// Revisions:
+//   - 2026-10-13 17:05: initial creation
+func _ShiftFits(span *_CaseSpan) bool {
+	if span.delta >= 0 {
+		return int(span.hi)+span.delta < BYTE_VALUES
+	}
+
+	return int(span.lo)+span.delta >= 0
+}
+
+// _ShiftWord adds the span's delta to every lane of w that sits inside the span.
+//
+// w is known to be ASCII. The high bit of a lane in range is spread down to a
+// full byte, then masked to the size of the shift, so lanes outside the range
+// are left alone.
+//
+// Revisions:
+//   - 2026-10-13 17:05: initial creation
+func _ShiftWord(w uint64, span *_CaseSpan) uint64 {
+	var (
+		atLeastLo = ONE_PER_BYTE * uint64(ASCII_LIMIT-span.lo)
+		pastHi    = ONE_PER_BYTE * uint64(ASCII_LIMIT-span.hi-1)
+		bits      = (w + atLeastLo) &^ (w + pastHi) & HIGH_BITS
+	)
+
+	bits |= bits >> 1
+	bits |= bits >> BIT_PAIR
+	bits |= bits >> BIT_NIBBLE
+
+	step := ONE_PER_BYTE * _DeltaMagnitude(span.delta)
+	if span.delta >= 0 {
+		return w + (bits & step)
+	}
+
+	return w - (bits & step)
+}
+
+// _DeltaMagnitude returns the absolute value of delta as a lane broadcast.
+//
+// Revisions:
+//   - 2026-10-13 17:05: initial creation
+func _DeltaMagnitude(delta int) uint64 {
+	if delta < 0 {
+		return uint64(-delta)
+	}
+
+	return uint64(delta)
 }
 
 // _Wrap copies parts into an arena-backed slice. The parts themselves are not

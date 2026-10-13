@@ -5,9 +5,9 @@
 // res.ErrOutOfMemory, TryAlloc reports exhaustion instead, alignment must be a
 // power of two, and any use after Delete panics with res.ErrDeleted.
 //
-// None of them is safe for concurrent use on its own. Wrap one in
-// alloc.Synchronized when an arena is shared between goroutines; a program that
-// gives each goroutine its own arena, which is the usual shape, pays nothing.
+// All three are safe for concurrent use. Each holds one mutex around its own
+// bookkeeping. A program that gives each goroutine its own arena, which is the
+// usual shape, pays for an uncontended lock and nothing else.
 package alloc
 
 import (
@@ -78,8 +78,9 @@ func (b *BumpAllocator) Delete() {
 //
 // Revisions:
 //   - 2025-12-16 08:35: initial creation
+//   - 2026-10-13 16:25: panic with ErrDeleted after Delete
 func (b *BumpAllocator) Remove(ptr unsafe.Pointer) {
-	// Empty
+	b.bump.Remove(ptr)
 }
 
 // Owns reports whether ptr came from this allocator.

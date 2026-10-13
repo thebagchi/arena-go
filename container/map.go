@@ -1,14 +1,23 @@
 package container
 
 import (
+	"errors"
 	"hash/maphash"
 	"iter"
 	"reflect"
+	"strings"
 	"sync"
 	"unsafe"
 
 	arena "github.com/thebagchi/arena-go"
 	"github.com/thebagchi/arena-go/res"
+)
+
+var (
+	// ErrIterStale is what MapIter.Next panics with when the map was written
+	// after the iterator was created. Walking on would follow a chain Set may
+	// have rehashed, or a node Delete has already freed.
+	ErrIterStale = errors.New("container: map changed during iteration")
 )
 
 const (
@@ -33,12 +42,18 @@ const (
 // says.
 //
 // Safe for concurrent use: reads share the lock, writes take it exclusively.
+//
+// Range copies the entries it will visit and releases the lock before the
+// callback, so the callback may call back into the map. It sees the entries
+// as they were when Range started. An iterator does not: Next panics with
+// ErrIterStale if the map was written after Iter.
 type Map[K comparable, V any] struct {
 	mtx     sync.RWMutex
 	arena   *arena.Arena
 	buckets *Vec[*_Entry[K, V]]
 	seed    maphash.Seed
 	count   int
+	gen     uint64
 	mask    uint64
 	keyStr  bool
 	valStr  bool
@@ -74,16 +89,19 @@ func NewMap[K comparable, V any](a *arena.Arena) *Map[K, V] {
 //
 // Revisions:
 //   - 2025-12-11 23:51: initial creation
+//   - 2026-10-13 16:25: free the arena copy of a string value that is replaced
 func (m *Map[K, V]) Set(key K, value V) {
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
+
+	m._Touch()
 
 	if m.count > m._Buckets()*LOAD_NUMERATOR/LOAD_DENOMINATOR {
 		m._Grow()
 	}
 
 	if m.valStr {
-		m._Intern(unsafe.Pointer(&value))
+		_CopyString(m.arena, unsafe.Pointer(&value))
 	}
 
 	var (
@@ -94,6 +112,14 @@ func (m *Map[K, V]) Set(key K, value V) {
 
 	for entry := head; entry != nil; entry = entry.next {
 		if entry.hash == hash && entry.key == key {
+			if m.valStr {
+				_Release(
+					m.arena,
+					unsafe.Pointer(&entry.val),
+					unsafe.Pointer(&value),
+				)
+			}
+
 			entry.val = value
 
 			return
@@ -101,7 +127,7 @@ func (m *Map[K, V]) Set(key K, value V) {
 	}
 
 	if m.keyStr {
-		m._Intern(unsafe.Pointer(&key))
+		_CopyString(m.arena, unsafe.Pointer(&key))
 	}
 
 	entry := arena.Alloc[_Entry[K, V]](m.arena)
@@ -149,6 +175,7 @@ func (m *Map[K, V]) Contains(key K) bool {
 //
 // Revisions:
 //   - 2025-12-11 23:51: initial creation
+//   - 2026-10-13 16:25: free the arena copies of a string key and value
 func (m *Map[K, V]) Delete(key K) {
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
@@ -166,14 +193,19 @@ func (m *Map[K, V]) Delete(key K) {
 			continue
 		}
 
+		heldKey := entry.key
+		heldVal := entry.val
+
 		if prev == nil {
 			m.buckets.Set(index, entry.next)
 		} else {
 			prev.next = entry.next
 		}
 
+		m._FreeStrings(heldKey, heldVal)
 		m.arena.Remove(unsafe.Pointer(entry))
 		m.count = m.count - 1
+		m._Touch()
 
 		return
 	}
@@ -192,17 +224,20 @@ func (m *Map[K, V]) Len() int {
 
 // Range calls visit for each entry until it returns false.
 //
+// The entries are copied under the lock and visit runs after it is released,
+// so visit may call back into the map. String keys and values in that copy
+// are heap copies: a callback that replaces or deletes the arena string must
+// not pull the bytes out from under the copy still being walked.
+//
 // Revisions:
 //   - 2025-12-11 23:51: initial creation
+//   - 2026-10-13 16:25: release the lock before visit, so a callback can write
 func (m *Map[K, V]) Range(visit func(K, V) bool) {
-	m.mtx.RLock()
-	defer m.mtx.RUnlock()
+	pairs := m._Pairs()
 
-	for _, head := range m.buckets.Slice() {
-		for entry := head; entry != nil; entry = entry.next {
-			if !visit(entry.key, entry.val) {
-				return
-			}
+	for i := range pairs {
+		if !visit(pairs[i].key, pairs[i].val) {
+			return
 		}
 	}
 }
@@ -211,6 +246,7 @@ func (m *Map[K, V]) Range(visit func(K, V) bool) {
 //
 // Revisions:
 //   - 2025-12-11 23:51: initial creation
+//   - 2026-10-13 16:25: free the arena copies of string keys and values
 func (m *Map[K, V]) Reset() {
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
@@ -218,7 +254,13 @@ func (m *Map[K, V]) Reset() {
 	buckets := m.buckets.Slice()
 	for i, head := range buckets {
 		for entry := head; entry != nil; {
-			next := entry.next
+			var (
+				next    = entry.next
+				heldKey = entry.key
+				heldVal = entry.val
+			)
+
+			m._FreeStrings(heldKey, heldVal)
 			m.arena.Remove(unsafe.Pointer(entry))
 			entry = next
 		}
@@ -227,6 +269,7 @@ func (m *Map[K, V]) Reset() {
 	}
 
 	m.count = 0
+	m._Touch()
 }
 
 // Clone returns a heap map holding the same entries, which outlives the arena.
@@ -290,11 +333,12 @@ func (m *Map[K, V]) All() iter.Seq2[K, V] {
 //
 // Revisions:
 //   - 2025-12-11 23:51: initial creation
+//   - 2026-10-13 16:25: record the map's generation so a later write is visible
 func (m *Map[K, V]) Iter() *MapIter[K, V] {
 	m.mtx.RLock()
 	defer m.mtx.RUnlock()
 
-	it := &MapIter[K, V]{owner: m}
+	it := &MapIter[K, V]{owner: m, gen: m.gen}
 	it._Advance()
 
 	return it
@@ -339,7 +383,7 @@ func (m *Map[K, V]) _Grow() {
 	m.arena.Remove(res.SlicePtr(old.Slice()))
 }
 
-// _Intern replaces a string in place with a copy that lives in the arena.
+// _CopyString replaces a string in place with a copy that lives in the arena.
 //
 // The pointer names a value whose type has string layout, which is what lets a
 // named string type be copied as well. Doing it through the empty interface
@@ -347,9 +391,109 @@ func (m *Map[K, V]) _Grow() {
 //
 // Revisions:
 //   - 2025-12-11 23:51: initial creation
-func (m *Map[K, V]) _Intern(at unsafe.Pointer) {
+//   - 2026-10-13 16:25: a function of the arena, so a skip list can copy too
+func _CopyString(a *arena.Arena, at unsafe.Pointer) {
 	held := (*string)(at)
-	*held = m.arena.MakeString(*held)
+	*held = a.MakeString(*held)
+}
+
+// _Release frees the arena copy of a string, unless keep names that same copy.
+//
+// keep is nil when the string is being dropped rather than replaced. An empty
+// string was never allocated.
+//
+// Revisions:
+//   - 2026-10-13 16:25: initial creation
+func _Release(a *arena.Arena, at, keep unsafe.Pointer) {
+	held := *(*string)(at)
+	if len(held) == 0 {
+		return
+	}
+
+	if keep != nil && unsafe.StringData(held) == unsafe.StringData(*(*string)(keep)) {
+		return
+	}
+
+	a.Remove(unsafe.Pointer(unsafe.StringData(held)))
+}
+
+// _FreeStrings frees the arena copies of a key and a value when those types
+// are strings. The caller has already copied them out of the entry.
+//
+// Revisions:
+//   - 2026-10-13 16:25: initial creation
+func (m *Map[K, V]) _FreeStrings(key K, value V) {
+	if m.keyStr {
+		_Release(m.arena, unsafe.Pointer(&key), nil)
+	}
+
+	if m.valStr {
+		_Release(m.arena, unsafe.Pointer(&value), nil)
+	}
+}
+
+// _Touch records that the map changed, so an iterator created before the
+// change can tell. The caller holds the write lock.
+//
+// Revisions:
+//   - 2026-10-13 16:25: initial creation
+func (m *Map[K, V]) _Touch() {
+	m.gen = m.gen + 1
+}
+
+// _Pair is one entry copied out of the map for Range.
+type _Pair[K comparable, V any] struct {
+	key K
+	val V
+}
+
+// _Pairs copies every entry. String keys and values are heap copies, so the
+// result does not depend on arena bytes a later write might free. The caller
+// does not hold the lock.
+//
+// Revisions:
+//   - 2026-10-13 16:25: initial creation
+func (m *Map[K, V]) _Pairs() []_Pair[K, V] {
+	m.mtx.RLock()
+	defer m.mtx.RUnlock()
+
+	pairs := make([]_Pair[K, V], 0, m.count)
+
+	for _, head := range m.buckets.Slice() {
+		for entry := head; entry != nil; entry = entry.next {
+			key := entry.key
+			val := entry.val
+
+			if m.keyStr {
+				key = _CloneString(key)
+			}
+
+			if m.valStr {
+				val = _CloneString(val)
+			}
+
+			pairs = append(pairs, _Pair[K, V]{key: key, val: val})
+		}
+	}
+
+	return pairs
+}
+
+// _CloneString returns a heap copy of a string-typed value. The copy is what
+// lets Range free the arena string from inside the callback without the bytes
+// under the walk disappearing.
+//
+// Revisions:
+//   - 2026-10-13 16:25: initial creation
+func _CloneString[T any](value T) T {
+	var (
+		held   = *(*string)(unsafe.Pointer(&value))
+		cloned = strings.Clone(held)
+	)
+
+	*(*string)(unsafe.Pointer(&value)) = cloned
+
+	return value
 }
 
 // MapIter walks a map one entry at a time.
@@ -357,15 +501,24 @@ type MapIter[K comparable, V any] struct {
 	owner   *Map[K, V]
 	current *_Entry[K, V]
 	index   int
+	gen     uint64
 }
 
 // Next returns the next key and value, reporting whether there was one.
 //
+// It panics with ErrIterStale when the map was written after Iter. The node
+// it would walk may already have been freed.
+//
 // Revisions:
 //   - 2025-12-11 23:51: initial creation
+//   - 2026-10-13 16:25: panic when the map's generation has moved on
 func (it *MapIter[K, V]) Next() (K, V, bool) {
 	it.owner.mtx.RLock()
 	defer it.owner.mtx.RUnlock()
+
+	if it.gen != it.owner.gen {
+		panic(ErrIterStale)
+	}
 
 	if it.current == nil {
 		var (

@@ -5,6 +5,7 @@ import (
 	"math/bits"
 	"math/rand/v2"
 	"sync"
+	"unsafe"
 
 	arena "github.com/thebagchi/arena-go"
 )
@@ -33,13 +34,20 @@ type Pair[K Ordered, V any] struct {
 
 // SkipList is an ordered key-value store whose nodes live in an arena.
 //
+// String keys and string values are copied into the arena as they are stored.
+// Arena memory is not scanned by the garbage collector, so a heap string kept
+// only by a node would be collected and its bytes reused underneath the list.
+// A key or value of any other pointer-bearing type is the caller's to copy.
+//
 // Safe for concurrent use: reads share the lock, writes take it exclusively.
 type SkipList[K Ordered, V any] struct {
-	mtx   sync.RWMutex
-	arena *arena.Arena
-	head  *_Node[K, V]
-	count int
-	level int
+	mtx    sync.RWMutex
+	arena  *arena.Arena
+	head   *_Node[K, V]
+	count  int
+	level  int
+	keyStr bool
+	valStr bool
 }
 
 // _Node is one tower in the list. forward holds one pointer per level.
@@ -53,11 +61,18 @@ type _Node[K Ordered, V any] struct {
 //
 // Revisions:
 //   - 2025-12-13 00:05: initial creation
+//   - 2026-10-13 16:25: record whether keys and values are strings, so inserts
+//     can copy them into the arena
 func NewSkipList[K Ordered, V any](a *arena.Arena) *SkipList[K, V] {
 	head := arena.Alloc[_Node[K, V]](a)
 	head.forward = arena.MakeSlice[*_Node[K, V]](a, MAX_LEVEL+1, MAX_LEVEL+1)
 
-	return &SkipList[K, V]{arena: a, head: head}
+	return &SkipList[K, V]{
+		arena:  a,
+		head:   head,
+		keyStr: _IsString[K](),
+		valStr: _IsString[V](),
+	}
 }
 
 // Search returns the value stored under key, reporting whether there was one.
@@ -92,6 +107,8 @@ func (sl *SkipList[K, V]) Contains(key K) bool {
 //
 // Revisions:
 //   - 2025-12-13 00:05: initial creation
+//   - 2026-10-13 16:25: copy string keys and values into the arena, and free
+//     the previous string value when a key is replaced
 func (sl *SkipList[K, V]) Insert(key K, value V) {
 	sl.mtx.Lock()
 	defer sl.mtx.Unlock()
@@ -100,17 +117,17 @@ func (sl *SkipList[K, V]) Insert(key K, value V) {
 	// allocation on a structure whose whole point is to avoid the heap.
 	var update [MAX_LEVEL + 1]*_Node[K, V]
 
-	node := sl.head
+	node := sl._Seek(key, &update)
 
-	for i := sl.level; i >= 0; i-- {
-		for node.forward[i] != nil && node.forward[i].key < key {
-			node = node.forward[i]
-		}
-
-		update[i] = node
+	if sl.valStr {
+		_CopyString(sl.arena, unsafe.Pointer(&value))
 	}
 
 	if next := node.forward[0]; next != nil && next.key == key {
+		if sl.valStr {
+			_Release(sl.arena, unsafe.Pointer(&next.value), unsafe.Pointer(&value))
+		}
+
 		next.value = value
 
 		return
@@ -123,6 +140,10 @@ func (sl *SkipList[K, V]) Insert(key K, value V) {
 		}
 
 		sl.level = level
+	}
+
+	if sl.keyStr {
+		_CopyString(sl.arena, unsafe.Pointer(&key))
 	}
 
 	fresh := arena.Alloc[_Node[K, V]](sl.arena)
@@ -141,21 +162,14 @@ func (sl *SkipList[K, V]) Insert(key K, value V) {
 //
 // Revisions:
 //   - 2025-12-13 00:05: initial creation
+//   - 2026-10-13 16:25: free the node, its forward slice, and any string copies
 func (sl *SkipList[K, V]) Delete(key K) bool {
 	sl.mtx.Lock()
 	defer sl.mtx.Unlock()
 
 	var update [MAX_LEVEL + 1]*_Node[K, V]
 
-	node := sl.head
-
-	for i := sl.level; i >= 0; i-- {
-		for node.forward[i] != nil && node.forward[i].key < key {
-			node = node.forward[i]
-		}
-
-		update[i] = node
-	}
+	node := sl._Seek(key, &update)
 
 	target := node.forward[0]
 	if target == nil || target.key != key {
@@ -172,6 +186,23 @@ func (sl *SkipList[K, V]) Delete(key K) bool {
 
 	for sl.level > 0 && sl.head.forward[sl.level] == nil {
 		sl.level = sl.level - 1
+	}
+
+	var (
+		heldKey = target.key
+		heldVal = target.value
+		fwd     = target.forward
+	)
+
+	arena.DeleteSlice(sl.arena, fwd)
+	sl.arena.Remove(unsafe.Pointer(target))
+
+	if sl.keyStr {
+		_Release(sl.arena, unsafe.Pointer(&heldKey), nil)
+	}
+
+	if sl.valStr {
+		_Release(sl.arena, unsafe.Pointer(&heldVal), nil)
 	}
 
 	sl.count = sl.count - 1
@@ -342,20 +373,34 @@ func (sl *SkipList[K, V]) CloneSlice() []Pair[K, V] {
 	return result
 }
 
-// _Find returns the first node at or after key.
+// _Seek walks the towers for key and records the last node at each level that
+// is still before it. The caller holds the lock.
 //
 // Revisions:
-//   - 2025-12-13 00:05: initial creation
-func (sl *SkipList[K, V]) _Find(key K) *_Node[K, V] {
+//   - 2026-10-13 16:40: initial creation
+func (sl *SkipList[K, V]) _Seek(key K, update *[MAX_LEVEL + 1]*_Node[K, V]) *_Node[K, V] {
 	node := sl.head
 
 	for i := sl.level; i >= 0; i-- {
 		for node.forward[i] != nil && node.forward[i].key < key {
 			node = node.forward[i]
 		}
+
+		update[i] = node
 	}
 
-	return node.forward[0]
+	return node
+}
+
+// _Find returns the first node at or after key.
+//
+// Revisions:
+//   - 2025-12-13 00:05: initial creation
+//   - 2026-10-13 16:40: the walk lives in _Seek, which also records the path
+func (sl *SkipList[K, V]) _Find(key K) *_Node[K, V] {
+	var update [MAX_LEVEL + 1]*_Node[K, V]
+
+	return sl._Seek(key, &update).forward[0]
 }
 
 // _RandomLevel returns a tower height, halving in probability per level.

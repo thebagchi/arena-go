@@ -18,9 +18,9 @@
 //	name := a.MakeString(userInput) // copied into the arena, safe to store
 //	node := arena.Ptr(a, Node{})    // lives in the arena, safe to point at
 //
-// The containers in the container package follow the same rule. Map copies
-// string keys for exactly this reason; a key or value of some other
-// pointer-bearing type is the caller's responsibility.
+// The containers in the container package follow the same rule. Map and
+// SkipList copy string keys and string values for exactly this reason; a key
+// or value of some other pointer-bearing type is the caller's responsibility.
 //
 // # Allocator contract
 //
@@ -33,7 +33,7 @@
 //   - align must be a power of two; zero means the natural default. Alignment up
 //     to the system page size is honoured.
 //   - Reset invalidates every pointer and keeps the memory. Delete releases it,
-//     after which any allocation panics with ErrDeleted.
+//     after which every operation panics with ErrDeleted.
 //   - Remove frees one allocation where the strategy supports it and is a no-op
 //     where it does not. It must be given the pointer that was handed out.
 //
@@ -213,13 +213,15 @@ func OwnsPtr[T any](a *Arena, ptr *T) bool {
 	return a.Owns(unsafe.Pointer(ptr))
 }
 
-// OwnsSlice reports whether a slice's backing array is in the arena. An empty
-// slice has no backing array, so it belongs to no arena.
+// OwnsSlice reports whether a slice's backing array is in the arena. A nil
+// slice, or one with no capacity, has no backing array, so it belongs to no
+// arena.
 //
 // Revisions:
 //   - 2025-12-09 22:38: initial creation
+//   - 2026-10-13 16:25: a length of zero with capacity still has a backing array
 func OwnsSlice[T any](a *Arena, slice []T) bool {
-	if len(slice) == 0 {
+	if cap(slice) == 0 {
 		return false
 	}
 
@@ -295,9 +297,11 @@ func DeleteObject[T any](a *Arena, obj *T) {
 //
 // Revisions:
 //   - 2025-12-09 22:38: initial creation
+//   - 2026-10-13 16:25: free a slice whose length is zero and whose capacity is
+//     not, which is still a live block
 func DeleteSlice[T any](a *Arena, slice []T) {
-	if len(slice) > 0 {
-		a.Remove(unsafe.Pointer(&slice[0]))
+	if ptr := res.SlicePtr(slice); ptr != nil {
+		a.Remove(ptr)
 	}
 }
 

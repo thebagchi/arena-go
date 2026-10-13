@@ -1333,6 +1333,7 @@ func TestBuddy_ConcurrentAllocations(t *testing.T) {
 //
 // Revisions:
 //   - 2025-12-23 19:20: initial creation
+//   - 2026-10-13 16:40: Reset after Delete panics with ErrDeleted
 func TestBuddy_InvalidInputs(t *testing.T) {
 	a := arena.New(alloc.NewBuddyAllocator())
 	defer a.Delete()
@@ -1386,6 +1387,13 @@ func TestBuddy_InvalidInputs(t *testing.T) {
 	t.Run("RESET_AFTERDELETE", func(t *testing.T) {
 		a2 := arena.New(alloc.NewBuddyAllocator())
 		a2.Delete()
+
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected panic when resetting after delete")
+			}
+		}()
+
 		a2.Reset()
 	})
 

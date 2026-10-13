@@ -113,8 +113,9 @@ func (a *BuddyAllocator) Alloc(size, align uint64) unsafe.Pointer {
 //
 // Revisions:
 //   - 2025-12-16 08:35: initial creation
+//   - 2026-10-13 16:25: a size that does not fit in an int reports exhaustion
 func (a *BuddyAllocator) TryAlloc(size, align uint64) (unsafe.Pointer, bool) {
-	size, align = res.Request(size, align)
+	size, align, fits := res.Request(size, align)
 
 	// The block has to cover the alignment as well as the size, or the block's
 	// own alignment says nothing about the pointer handed back. Passing only the
@@ -126,6 +127,10 @@ func (a *BuddyAllocator) TryAlloc(size, align uint64) (unsafe.Pointer, bool) {
 
 	if a.deleted {
 		panic(res.ErrDeleted)
+	}
+
+	if !fits {
+		return nil, false
 	}
 
 	ptr, ok := a._FromChunks(block)
@@ -144,12 +149,13 @@ func (a *BuddyAllocator) TryAlloc(size, align uint64) (unsafe.Pointer, bool) {
 //
 // Revisions:
 //   - 2025-12-16 08:35: initial creation
+//   - 2026-10-13 16:25: panic with ErrDeleted after Delete, as Alloc does
 func (a *BuddyAllocator) Reset() {
 	a.mtx.Lock()
 	defer a.mtx.Unlock()
 
 	if a.deleted {
-		return
+		panic(res.ErrDeleted)
 	}
 
 	for _, chunk := range a.chunks {
@@ -184,15 +190,16 @@ func (a *BuddyAllocator) Delete() {
 //
 // Revisions:
 //   - 2025-12-16 08:35: initial creation
+//   - 2026-10-13 16:25: panic with ErrDeleted after Delete, as Alloc does
 func (a *BuddyAllocator) Remove(ptr unsafe.Pointer) {
-	if ptr == nil {
-		return
-	}
-
 	a.mtx.Lock()
 	defer a.mtx.Unlock()
 
 	if a.deleted {
+		panic(res.ErrDeleted)
+	}
+
+	if ptr == nil {
 		return
 	}
 

@@ -152,9 +152,9 @@ func (a *SlabAllocator) Alloc(size, align uint64) unsafe.Pointer {
 //
 // Revisions:
 //   - 2025-12-09 22:38: initial creation
+//   - 2026-10-13 16:25: a size that does not fit in an int reports exhaustion
 func (a *SlabAllocator) TryAlloc(size, align uint64) (unsafe.Pointer, bool) {
-	size, align = res.Request(size, align)
-	want := int(max(size, align))
+	size, align, fits := res.Request(size, align)
 
 	a.mtx.Lock()
 	defer a.mtx.Unlock()
@@ -162,6 +162,12 @@ func (a *SlabAllocator) TryAlloc(size, align uint64) (unsafe.Pointer, bool) {
 	if a.deleted {
 		panic(res.ErrDeleted)
 	}
+
+	if !fits {
+		return nil, false
+	}
+
+	want := int(max(size, align))
 
 	slab, ok := a._SlabFor(want)
 	if !ok {
@@ -190,12 +196,13 @@ func (a *SlabAllocator) TryAlloc(size, align uint64) (unsafe.Pointer, bool) {
 //
 // Revisions:
 //   - 2025-12-09 22:38: initial creation
+//   - 2026-10-13 16:25: panic with ErrDeleted after Delete, as Alloc does
 func (a *SlabAllocator) Reset() {
 	a.mtx.Lock()
 	defer a.mtx.Unlock()
 
 	if a.deleted {
-		return
+		panic(res.ErrDeleted)
 	}
 
 	for _, slab := range a.slabs {
@@ -244,15 +251,16 @@ func (a *SlabAllocator) Delete() {
 //
 // Revisions:
 //   - 2025-12-09 22:38: initial creation
+//   - 2026-10-13 16:25: panic with ErrDeleted after Delete, as Alloc does
 func (a *SlabAllocator) Remove(ptr unsafe.Pointer) {
-	if ptr == nil {
-		return
-	}
-
 	a.mtx.Lock()
 	defer a.mtx.Unlock()
 
 	if a.deleted {
+		panic(res.ErrDeleted)
+	}
+
+	if ptr == nil {
 		return
 	}
 

@@ -1349,6 +1349,7 @@ func TestBump_ConcurrentAllocations(t *testing.T) {
 //
 // Revisions:
 //   - 2025-12-20 23:37: initial creation
+//   - 2026-10-13 16:40: Reset after Delete panics with ErrDeleted
 func TestBump_InvalidInputs(t *testing.T) {
 	a := arena.New(alloc.NewBumpAllocator(res.PAGE_SIZE))
 	defer a.Delete()
@@ -1402,8 +1403,14 @@ func TestBump_InvalidInputs(t *testing.T) {
 	t.Run("RESET_AFTERDELETE", func(t *testing.T) {
 		a2 := arena.New(alloc.NewBumpAllocator(res.PAGE_SIZE))
 		a2.Delete()
-		// Reset after delete may be safe, check if it doesn't crash
-		a2.Reset() // If it panics, the test will fail
+
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected panic when resetting after delete")
+			}
+		}()
+
+		a2.Reset()
 	})
 
 	t.Run("ALLOC_AFTERDELETE", func(t *testing.T) {
