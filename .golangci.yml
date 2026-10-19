@@ -164,8 +164,8 @@ linters:
     # in this repository always satisfies it and a hand-written one never does by accident.
     #
     # Measured in the source repository: with the exclusion disabled, planted violations
-    # in a generated .pb.go are reported; with it on, they are not. This repository has
-    # no generated files yet; the setting is here for the day it does.
+    # in a generated .pb.go are reported; with it on, they are not. container/case_amd64.s
+    # is generated; the banner on its first line is what keeps a formatter off it.
     generated: strict
 
     rules:
@@ -185,6 +185,13 @@ linters:
           - gocognit
           - goconst
           - mnd
+      # container/gen is three functions: the command, the AVX2 check, and both
+      # rewrite kernels. The kernels are an instruction list read in order.
+      # Splitting them to satisfy the statement limit is what made that list
+      # hard to follow, so funlen stays off for this file and on everywhere else.
+      - path: container/gen/
+        linters:
+          - funlen
 
 formatters:
   enable:
